@@ -1,0 +1,4 @@
+# Keep login, account responses and frequently updated app files out of caches.
+<IfModule mod_headers.c>
+  Header always set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+</IfModule>

@@ -2,6 +2,12 @@
 
 De code staat los van de geheime serverconfiguratie. GitHub-updates mogen die configuratie niet overschrijven. Vul wachtwoorden of sleutels nooit in een GitHub-bestand of in ChatGPT in.
 
+## 0. Cache na publicatie
+
+Wis na deze eerste publicatie de Hostinger-cache voor **beide websites**, en de CDN-cache als die aan staat. Tijdens de controle leverde de gewone app-URL nog de oude demo terwijl de nieuwe bestanden al op de server stonden. Via `https://app.afspraakboeken.be/?v=0.9.0` kun je de nieuwe login alvast bekijken.
+
+De meegeleverde `.htaccess` geeft de app `Cache-Control: no-store` en laat de homepage opnieuw controleren op wijzigingen. Bestaande CDN-kopieën verdwijnen daardoor niet vanzelf onmiddellijk: die moet je eenmalig wissen. Laat de volledige app en vooral `/api/` buiten eventuele geforceerde CDN- of paginacaching. Controleer daarna in een privévenster dat de normale app-URL het aanmeldscherm toont en niet de demo.
+
 ## 1. Een database onder de app-website
 
 Selecteer in Hostinger de website **app.afspraakboeken.be** en open **Databases → Beheer / Management**. Maak één lege MySQL-database met een eigen databasegebruiker. Gebruik de volledige namen, inclusief Hostingers accountvoorvoegsel. Bewaar het databasewachtwoord in je wachtwoordbeheerder.
