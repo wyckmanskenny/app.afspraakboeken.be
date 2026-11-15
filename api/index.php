@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require __DIR__.'/bootstrap.php';
 require __DIR__.'/domain.php';
+require __DIR__.'/mailer.php';
 
 try {
     $route=trim($_GET['route']??'health','/');$method=$_SERVER['REQUEST_METHOD'];
@@ -9,8 +10,8 @@ try {
         header('Access-Control-Allow-Origin: *');
         try{
             configuration();$ready=(int)query("SELECT COUNT(*) FROM ab_users WHERE role='superadmin'")->fetchColumn()>0;
-            respond(['ready'=>$ready,'version'=>'0.9.2']);
-        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.9.2'],503);}
+            respond(['ready'=>$ready,'version'=>'0.9.3']);
+        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.9.3'],503);}
     }
     configuration();
     if($method==='OPTIONS'&&$route==='contact'){origin_guard(true);respond([],204);}
@@ -66,7 +67,8 @@ try {
         $name=text($data,'name',120,true);$company=text($data,'company',120,true);$email=email($data);
         $phone=text($data,'phone',40);$sector=text($data,'sector',80);$message=text($data,'message',3000,true);
         limit_rate('contact-ip',client_ip(),6,3600);limit_rate('contact-email',$email,3,3600);
-        query('INSERT INTO ab_contacts(id,name,company,email,phone,sector,message) VALUES (?,?,?,?,?,?,?)',[uid(),$name,$company,$email,$phone,$sector,$message]);
+        $id=uid();query('INSERT INTO ab_contacts(id,name,company,email,phone,sector,message) VALUES (?,?,?,?,?,?,?)',[$id,$name,$company,$email,$phone,$sector,$message]);
+        send_lead_notice($id,['name'=>$name,'company'=>$company,'email'=>$email,'phone'=>$phone,'sector'=>$sector,'message'=>$message]);
         respond(['message'=>'Bedankt! Je aanvraag is ontvangen. Wycked neemt contact met je op.'],201);
     }
     if($route==='public/catalog'&&$method==='GET'){
@@ -118,7 +120,7 @@ try {
         session_cookie('',time()-3600);respond(['message'=>'Wachtwoord gewijzigd. Meld je opnieuw aan.']);
     }
     if($route==='tenants'&&$method==='GET'){
-        superadmin($user);$list=query('SELECT * FROM ab_tenants ORDER BY created_at DESC')->fetchAll();respond(['tenants'=>array_map(fn($t)=>tenant_view($t,true),$list)]);
+        superadmin($user);$list=query('SELECT * FROM ab_tenants ORDER BY created_at DESC')->fetchAll();respond(['tenants'=>array_map(fn($t)=>tenant_view($t,true),$list),'mail'=>mail_status()]);
     }
     if($route==='tenants/create'&&$method==='POST'){
         superadmin($user);$data=body();$name=text($data,'name',120,true);$email=email($data);$adminName=text($data,'admin_name',120,true);$sector=text($data,'sector',80);
@@ -132,7 +134,9 @@ try {
             query('INSERT INTO ab_users(id,tenant_id,email,name,role) VALUES (?,?,?,?,\'admin\')',[$userId,$id,$email,$adminName]);
             $link=invite_for($userId);audit($user['id'],'tenant.created',$id);
             return ['tenant_id'=>$id,'invite_url'=>$link,'message'=>'Klant aangemaakt. Activeer het account wanneer jij klaar bent.'];
-        });respond($result,201);
+        });
+        $result['mail']=send_welcome($user['id'],$result['tenant_id'],$email,$adminName,$name,$result['invite_url'],false);
+        respond($result,201);
     }
     if($route==='workspace'&&$method==='GET'){
         $t=tenant_access($user,$_GET['tenant']??$user['tenant_id']);
@@ -156,7 +160,9 @@ try {
             $t=tenant_access($user,$data['tenant']??null,true);
             if(integer($data,'revision',1,2147483647)!==(int)$t['revision'])fail(409,'Deze klant is elders gewijzigd. Vernieuw de pagina.');
             $plan=$data['plan_type']??'';if(!in_array($plan,['monthly','lifetime'],true))fail(422,'Kies een abonnementstype.');
-            $billing=[];foreach(['legalName'=>150,'vatNumber'=>50,'address'=>250,'invoiceReference'=>100,'notes'=>1000] as $key=>$max)$billing[$key]=text($data['billing']??[],$key,$max);
+            $input=$data['billing']??[];if(!is_array($input))fail(422,'Controleer de facturatiegegevens.');
+            $billing=decoded($t['billing_json']);foreach(['legalName'=>150,'email'=>190,'vatNumber'=>50,'address'=>250,'invoiceReference'=>100,'notes'=>1000] as $key=>$max)if(array_key_exists($key,$input))$billing[$key]=text($input,$key,$max);
+            if(!empty($billing['email']))$billing['email']=email($billing);
             $active=flag($data,'active');
             query('UPDATE ab_tenants SET active=?,plan_type=?,monthly_cents=?,lifetime_cents=?,billing_json=?,revision=revision+1 WHERE id=?',[(int)$active,$plan,integer($data,'monthly_cents',0,10000000),integer($data,'lifetime_cents',0,10000000),encoded($billing),$t['id']]);
             if(!$active)query('DELETE s FROM ab_sessions s JOIN ab_users u ON u.id=s.user_id WHERE u.tenant_id=?',[$t['id']]);
@@ -169,6 +175,24 @@ try {
             if(!$admin)fail(404,'Geen beheerder gevonden.');
             audit($user['id'],'auth.invite_renewed',$admin['id']);return ['invite_url'=>invite_for($admin['id']),'email'=>$admin['email']];
         });respond($result);
+    }
+    if($route==='tenant/welcome'&&$method==='POST'){
+        superadmin($user);$data=body();$t=tenant_access($user,$data['tenant']??null);
+        if(mail_configuration()===null)fail(422,'De verzendmailbox is nog niet ingesteld. Stel eerst SMTP in op Hostinger.');
+        limit_rate('welcome-tenant',$t['id'],3,900);limit_rate('welcome-agency',$user['id'],40,3600);
+        $lock='ab-welcome-'.$t['id'];
+        if((int)query('SELECT GET_LOCK(?,0)',[$lock])->fetchColumn()!==1)fail(409,'Er wordt al een welkomstmail verstuurd.');
+        try{
+            $result=transaction(function()use($user,$t){
+                $current=tenant_access($user,$t['id'],true);
+                $admin=row('SELECT id,name,email FROM ab_users WHERE tenant_id=? AND role=\'admin\' AND active=1 ORDER BY created_at,id LIMIT 1',[$t['id']]);
+                if(!$admin)fail(404,'Geen beheerder gevonden.');
+                audit($user['id'],'auth.invite_renewed',$admin['id']);
+                return ['admin'=>$admin,'tenant'=>$current,'invite_url'=>invite_for($admin['id'])];
+            });
+            $mail=send_welcome($user['id'],$t['id'],$result['admin']['email'],$result['admin']['name'],$result['tenant']['name'],$result['invite_url'],(bool)$result['tenant']['active']);
+        }finally{query('SELECT RELEASE_LOCK(?)',[$lock]);}
+        respond(['invite_url'=>$result['invite_url'],'mail'=>$mail]);
     }
     if($route==='service/save'&&$method==='POST'){
         $data=body();$result=transaction(function()use($user,$data){
@@ -188,7 +212,10 @@ try {
             audit($user['id'],'booking.updated',$id);return ['ok'=>true];
         });respond($result);
     }
-    if($route==='contacts'&&$method==='GET'){superadmin($user);respond(['contacts'=>query('SELECT * FROM ab_contacts ORDER BY created_at DESC LIMIT 1000')->fetchAll()]);}
+    if($route==='contacts'&&$method==='GET'){
+        superadmin($user);$list=query("SELECT c.*,(SELECT a.action FROM ab_audit a WHERE a.target_id=c.id AND a.action IN ('contact.mail_sent','contact.mail_failed','contact.mail_not_configured') ORDER BY a.id DESC LIMIT 1) AS notification FROM ab_contacts c ORDER BY c.created_at DESC LIMIT 1000")->fetchAll();
+        respond(['contacts'=>$list]);
+    }
     if($route==='contact/update'&&$method==='POST'){
         superadmin($user);$data=body();$id=identifier($data['id']??null);
         if(!in_array($data['status']??'',['new','contacted','archived'],true))fail(422,'Kies een geldige status.');

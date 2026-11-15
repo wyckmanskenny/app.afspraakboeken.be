@@ -68,7 +68,7 @@ Open vervolgens **https://app.afspraakboeken.be/** en meld je aan. Controleer da
 
 1. Kies **Klant toevoegen** en vul bedrijfsnaam, beheerder, e-mailadres, sector, formule, bedrag en huisstijl in.
 2. Het bedrijfsaccount start inactief. Er is nog geen wachtwoord ingesteld.
-3. Kopieer de persoonlijke activatielink en deel die met de juiste klant. De link is 24 uur geldig en werkt één keer. Er wordt geen e-mail automatisch verzonden.
+3. Als de [verzendmailbox](EMAIL.md) is gekoppeld, ontvangt de beheerder automatisch een welkomstmail met de persoonlijke activatielink. Anders kopieer en deel je de link zelf. De link is 24 uur geldig en werkt één keer. De app toont de werkelijke verzendstatus.
 4. Regel de factuur buiten de app. Activeer het bedrijf via **Administratie** wanneer jij klaar bent.
 5. De klant kiest via de activatielink zelf een wachtwoord. Na activatie kan die alleen de eigen omgeving openen.
 6. Voeg diensten en beschikbaarheid toe en test een afspraak met fictieve gegevens. Pas daarna deel je de echte boekingslink of widget.
@@ -85,4 +85,4 @@ Een nieuwe link via **Activatielink** maakt eerdere ongebruikte links ongeldig. 
 - Houd PHP en de hostingomgeving bij. De app maakt gebruik van PHP's wachtwoordhashfuncties en prepared SQL-statements.
 - Optioneel: laat dagelijks `php /absoluut/pad/naar/public_html/api/maintenance.php` uitvoeren via een Hostinger-crontaak. Dit ruimt alleen verlopen sessies, rate-limitregels en oude activatietokens op; het verwijdert geen klanten, afspraken of contactaanvragen. Gebruik het werkelijke serverpad van jouw app.
 
-E-mailverzending en agendasynchronisatie worden afzonderlijk aangesloten. Tot dan staat een afspraak in de database en op het scherm; er wordt geen bevestigingsmail beloofd of verstuurd.
+Welkomstmails en e-mailmeldingen van nieuwe aanvragen worden aangesloten via [EMAIL.md](EMAIL.md). Boekingsbevestigingen en agendasynchronisatie worden afzonderlijk aangesloten. Tot dan staat een afspraak in de database en op het scherm; er wordt geen boekingsbevestigingsmail beloofd of verstuurd.

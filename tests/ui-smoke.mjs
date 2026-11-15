@@ -20,8 +20,8 @@ async function setup(handler,url='https://app.afspraakboeken.be/'){
  const cache=new Map();
  async function module(file){
   if(cache.has(file))return cache.get(file);
-  const mod=new vm.SourceTextModule(fs.readFileSync(file,'utf8'),{context,identifier:file,initializeImportMeta(meta){meta.url='https://app.afspraakboeken.be/'+path.relative(root,file);},importModuleDynamically:async(specifier,parent)=>{const child=await module(path.resolve(path.dirname(parent.identifier),specifier));if(child.status!=='evaluated')await child.evaluate();return child;}});
-  cache.set(file,mod);await mod.link((specifier,parent)=>module(path.resolve(path.dirname(parent.identifier),specifier)));return mod;
+  const mod=new vm.SourceTextModule(fs.readFileSync(file,'utf8'),{context,identifier:file,initializeImportMeta(meta){meta.url='https://app.afspraakboeken.be/'+path.relative(root,file);},importModuleDynamically:async(specifier,parent)=>{const child=await module(path.resolve(path.dirname(parent.identifier),specifier.split('?')[0]));if(child.status!=='evaluated')await child.evaluate();return child;}});
+  cache.set(file,mod);await mod.link((specifier,parent)=>module(path.resolve(path.dirname(parent.identifier),specifier.split('?')[0])));return mod;
  }
  const mod=await module(path.join(root,'portal.js'));await mod.evaluate();
  return {window,document,calls,close:()=>window.happyDOM.close()};
@@ -68,4 +68,21 @@ test('An unavailable backend presents a real status and never a fake signed-in w
  const ui=await setup(()=>result({error:'Unavailable'},503));await until(()=>ui.document.getElementById('login-form'));
  assert.ok(ui.document.body.textContent.includes('nog')||ui.document.body.textContent.includes('klaargezet'));
  assert.equal(ui.document.querySelector('.sidebar'),null);await ui.close();
+});
+test('Administration shows the login address and saves a separate billing email',async()=>{
+ const tenant={...company,admin:{name:'Account Owner',email:'login@example.test'},welcome:{status:'not_configured'},subscription:{type:'monthly',monthlyAmount:10,lifetimeAmount:0,billing:{email:'billing@example.test'}}};
+ const ui=await setup(route=>route==='me'?result({csrf:'csrf-test',user:{id:'d'.repeat(32),role:'superadmin',name:'Agency',email:'agency@example.test'}}):route==='tenants'?result({tenants:[tenant],mail:{configured:false}}):result({}));
+ await until(()=>ui.document.querySelector('[data-action="tenant-admin"]'));
+ ui.document.querySelector('[data-action="tenant-admin"]').click();
+ const form=ui.document.getElementById('tenant-admin-form');
+ assert.equal(form.querySelector('input[readonly][type=email]').value,'login@example.test');
+ assert.equal(form.querySelector('[data-action="tenant-welcome"]').disabled,true);
+ form.querySelector('[name=billingEmail]').value='accounts@example.test';
+ form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.calls.some(c=>c.route==='tenant/admin'));
+ const saved=ui.calls.find(c=>c.route==='tenant/admin').data;
+ assert.equal(saved.billing.email,'accounts@example.test');assert.equal('email' in saved,false);await ui.close();
+});
+test('Email inbox links open Aanvragen immediately after authentication',async()=>{
+ const ui=await setup(route=>route==='me'?result({csrf:'csrf-test',user:{id:'d'.repeat(32),role:'superadmin',name:'Agency',email:'agency@example.test'}}):route==='tenants'?result({tenants:[],mail:{configured:false}}):result({contacts:[]}),'https://app.afspraakboeken.be/?view=contacts');
+ await until(()=>ui.document.body.textContent.includes('Nieuwe kansen'));assert.ok(ui.calls.some(c=>c.route==='contacts'));await ui.close();
 });

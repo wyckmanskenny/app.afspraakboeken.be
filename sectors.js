@@ -1,0 +1,15 @@
+export const SECTORS=[
+ 'Bouw, renovatie & installatie',
+ 'Beauty & wellness',
+ 'Gezondheid & zorg',
+ 'Sport & fitness',
+ 'Onderwijs & opleidingen',
+ 'Zakelijke dienstverlening',
+ 'Persoonlijke dienstverlening',
+ 'Horeca & voeding',
+ 'Evenementen, cultuur & vrije tijd',
+ 'Mobiliteit & vervoer',
+ 'Detailhandel & verhuur',
+ 'Overheid & maatschappelijke diensten',
+ 'Overige sectoren',
+];

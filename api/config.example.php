@@ -23,4 +23,16 @@ return [
     'app_key' => '',
     'setup_key' => '',
     'secure_cookies' => true,
+    // Configure once on Hostinger; never put mailbox passwords in Git.
+    'mail' => [
+        'enabled' => false,
+        'host' => 'smtp.hostinger.com',
+        'port' => 465,
+        'encryption' => 'ssl',
+        'username' => '',
+        'password' => '',
+        'from_email' => '',
+        'from_name' => 'Afspraakboeken.be · door Wycked',
+        'reply_to' => '',
+    ],
 ];

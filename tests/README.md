@@ -10,6 +10,10 @@ Provide a private test config with `app_url` matching the PHP test server, `secu
 API_BASE=http://127.0.0.1:58089 TEST_SETUP_KEY='<local-test-setup-key>' python3 tests/api-integration.py
 ```
 
-The test creates fictitious `example.test` users and companies, accepts invitation tokens, exercises both administrator roles and public forms, and attempts simultaneous bookings. It does not send email or access external calendars.
+The test creates fictitious `example.test` users and companies, accepts invitation tokens, exercises both administrator roles and public forms, and attempts simultaneous bookings. Start with email disabled. It does not access external calendars.
+
+Run `mail-integration.py` afterwards against the same disposable database/server, with `TEST_CONFIG_PATH` pointing to a config inside the ignored `tests/.runtime/` directory. Run PHP with `openssl.cafile` set to the absolute path of `tests/.runtime/smtp-cert.pem`. The test generates a temporary certificate and starts its own loopback TLS SMTP sink on port 5465; it never sends external email. It tests welcome messages, recipient separation, billing data, lead notifications, SMTP rejection, certificate hostname verification and missing mail configuration. It restores the test config when finished. Python 3.9+ and the `openssl` command are needed.
+
+`tests/registration-smoke.mjs` checks readiness, optional fields, duplicate-click protection, successful lead submission, escaped confirmation text and failure recovery. `tests/ui-smoke.mjs` also checks account/billing address separation and inbox deep links. Run these using `node --experimental-vm-modules --test`, with Happy DOM available or `HAPPY_DOM_MODULE` pointing to its module entry file.
 
 Syntax: run `php -l` on every `api/*.php` file and `node --check` on each JavaScript module. The optional frontend DOM tests use Happy DOM in an isolated VM; no dependency is required on the hosting server.

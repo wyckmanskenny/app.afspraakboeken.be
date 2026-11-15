@@ -1,1 +1,53 @@
-<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><title>Een account aanvragen · Afspraakboeken.be</title><link rel="stylesheet" href="../portal.css"></head><body><main class="compact-auth"><section class="panel"><a class="brand" href="https://afspraakboeken.be/">afspraakboeken.be</a><h1>Een goede start voor jouw zaak.</h1><p class="sub">Wycked zet je bedrijfsomgeving persoonlijk klaar. We bespreken je diensten en formule, maken je account aan en sturen je een persoonlijke activatielink.</p><a class="btn primary section-gap" href="https://afspraakboeken.be/#contact">Vertel ons over je zaak →</a><p class="field-help section-gap">Heb je al een actief account? <a href="../">Meld je aan.</a></p></section></main></body></html>
+<!doctype html>
+<html lang="nl">
+<head>
+ <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+ <meta name="robots" content="noindex,nofollow,noarchive"><meta name="theme-color" content="#264653">
+ <meta name="description" content="Vraag jouw Afspraakboeken.be-account aan. Eenvoudig afspraken boeken en klanten opvolgen, persoonlijk ingericht voor jouw bedrijf door Wycked.">
+ <title>Vraag je account aan · Afspraakboeken.be</title>
+ <link rel="stylesheet" href="../portal.css"><link rel="stylesheet" href="./registration.css?v=0.9.3">
+ <script type="module" src="./registration.js?v=0.9.3"></script>
+</head>
+<body>
+<a class="registration-skip" href="#aanvraag">Naar het aanvraagformulier</a>
+<main class="registration-layout">
+ <section class="registration-story" aria-labelledby="story-title">
+  <a class="brand" href="https://afspraakboeken.be/"><b><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2v4 M16 2v4 M3 10h18 M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2 M7 14h2 M13 14h2"/></svg></b><span>afspraakboeken.be<small>door Wycked</small></span></a>
+  <div class="registration-story-content">
+   <p class="eyebrow">Meer ruimte voor je klanten</p>
+   <h1 id="story-title">Meer afspraken.<br><em>Minder geregel.</em></h1>
+   <p class="registration-lead">Geef je klanten een eenvoudige manier om te boeken. Jij houdt de agenda én de opvolging in handen.</p>
+   <ul class="registration-benefits"><li><span aria-hidden="true">✓</span> Boeken in de huisstijl van jouw bedrijf</li><li><span aria-hidden="true">✓</span> Afspraken en klantopvolging op één plek</li><li><span aria-hidden="true">✓</span> Persoonlijk ingericht voor jouw zaak</li></ul>
+   <div class="registration-preview" aria-label="Illustratief voorbeeld van een boeking">
+    <div class="preview-top"><span>Jouw zaak</span><span class="preview-label">Voorbeeld</span></div>
+    <p class="preview-title">Een moment dat past.</p><p class="preview-sub">Kennismaking · 30 minuten</p>
+    <div class="preview-times" aria-hidden="true"><span>09:00</span><span class="chosen">10:30 <b>✓</b></span><span>14:00</span></div>
+    <div class="preview-bottom"><span class="preview-check" aria-hidden="true">✓</span><div><strong>Afspraak geregeld.</strong><small>En klaar om op te volgen.</small></div></div>
+    <span class="preview-note">Jouw website. Jouw uitstraling.</span>
+   </div>
+  </div>
+  <p class="registration-story-footer">Voor zelfstandigen en bedrijven die tijd maken voor klanten.</p>
+ </section>
+ <section class="registration-main" id="aanvraag" aria-labelledby="form-title">
+  <nav class="registration-top" aria-label="Accountnavigatie"><a href="https://afspraakboeken.be/">← Naar de website</a><span>Al een account? <a href="../">Aanmelden</a></span></nav>
+  <div class="registration-card">
+   <div id="registration-intro"><p class="eyebrow">Een goede start voor jouw zaak</p><h2 id="form-title">Vraag je account aan.</h2><p class="sub">Vertel ons kort over je bedrijf. We bekijken samen wat bij je past en zetten je omgeving persoonlijk klaar.</p></div>
+   <form id="registration-form" class="fields">
+    <div class="registration-row"><label>Je naam<input name="name" autocomplete="name" maxlength="120" required placeholder="Voor- en achternaam"></label><label>Bedrijfsnaam<input name="company" autocomplete="organization" maxlength="120" required placeholder="Naam van je zaak"></label></div>
+    <label>E-mailadres<input name="email" type="email" autocomplete="email" maxlength="190" required placeholder="jij@jouwbedrijf.be"></label>
+    <div class="registration-row"><label>Sector<select name="sector" required><option value="" disabled selected>Kies een sector</option></select></label><label>Telefoonnummer <span class="optional">Optioneel</span><input name="phone" type="tel" autocomplete="tel" maxlength="40" placeholder="Waarop mogen we je bereiken?"></label></div>
+    <label>Wat wil je eenvoudiger regelen? <span class="optional">Optioneel</span><textarea name="message" rows="3" maxlength="1800" placeholder="Bijvoorbeeld: klanten zelf een afspraak laten boeken op mijn website."></textarea></label>
+    <div class="registration-trap" aria-hidden="true"><label>Website<input name="website" autocomplete="off" tabindex="-1"></label></div>
+    <p id="registration-status" class="registration-status" role="status" aria-live="polite">Een ogenblik, we laden het formulier…</p>
+    <button class="btn primary registration-submit" type="submit" disabled>Vraag mijn account aan <span aria-hidden="true">→</span></button>
+    <p class="registration-reassurance"><span aria-hidden="true">✓</span> Vrijblijvende aanvraag. Je sluit nog geen abonnement af.</p>
+    <p class="registration-privacy">We gebruiken je gegevens om je aanvraag te beantwoorden en contact met je op te nemen. Je schrijft je niet in voor een nieuwsbrief.</p>
+   </form>
+   <div id="registration-success" class="registration-success" hidden tabindex="-1" role="status"><span class="registration-success-icon" aria-hidden="true">✓</span><p class="eyebrow">Je eerste stap is gezet</p><h2>Je aanvraag is goed aangekomen.</h2><p id="registration-thanks" class="sub">Kenny van Wycked neemt persoonlijk contact met je op.</p><div class="registration-next"><strong>Wat gebeurt er nu?</strong><p>We bespreken jouw diensten en wensen. Daarna ontvang je een voorstel en zetten we, na akkoord, je eigen omgeving klaar.</p></div><a class="btn primary" href="https://afspraakboeken.be/">Terug naar de website <span aria-hidden="true">→</span></a></div>
+   <noscript><p>Schakel JavaScript in om dit formulier te gebruiken.</p></noscript>
+  </div>
+  <footer class="registration-footer"><span>01 Aanvraag</span><i aria-hidden="true"></i><span>02 Kennismaking</span><i aria-hidden="true"></i><span>03 Jouw omgeving</span></footer>
+ </section>
+</main>
+</body>
+</html>

@@ -8,7 +8,7 @@ PHP 8.2+ / MySQL 8 or MariaDB 10.6+, with PDO MySQL, JSON, OpenSSL and InnoDB. N
 - The first superadmin is installed using a private server-side setup key. No public self-registration exists.
 - Superadmins create inactive companies with one initial company administrator, choose monthly/lifetime terms and manually activate them. Billing happens outside this platform.
 - Company administrators can access only their own settings, services, appointments and enabled CRM. Billing data and the website inbox are not returned to them.
-- Activation/password-reset links expire after 24 hours and work once. The superadmin copies and personally shares the link; no email is automatically sent.
+- Activation/password-reset links expire after 24 hours and work once. With SMTP configured, new company administrators receive a branded welcome email. The superadmin can resend it or personally share the link. Account access still requires manual company activation.
 - Session cookies are host-only, HttpOnly, Secure and SameSite=Lax. Tokens are hashed in the database. Sessions expire after 30 minutes of inactivity or 8 hours absolute. Deactivation and password changes revoke sessions.
 - Authenticated writes require a session CSRF token and the configured Origin. Public contact writes allow only configured homepage origins. Public booking exposes availability, never existing customers' details.
 
@@ -28,7 +28,9 @@ The old demonstration is isolated under `/demo/`. The public homepage uses that 
 
 ## Current limits
 
-Google/Outlook calendar synchronization, automatic booking email, reminders and payments are not connected. Stored email templates are marked as previews. Confirmation is shown on screen and can be downloaded as an ICS calendar event. The contact inbox is stored in the database; it does not send an email notification yet.
+Google/Outlook calendar synchronization, automatic booking email, reminders and payments are not connected. Stored booking email templates are marked as previews. Booking confirmation is shown on screen and can be downloaded as an ICS calendar event.
+
+The public `/registreren/` page collects account requests without creating login accounts. Both it and the homepage contact form save requests in the agency inbox. SMTP notifications go to `kenny@kdesign.be`, with the validated applicant as Reply-To. A failed email never rolls back a saved request or company. Set up the private SMTP configuration using [docs/EMAIL.md](docs/EMAIL.md); without it, the inbox works but no mail is sent. Billing email is independent of the administrator's login email and is visible only to the agency.
 
 The first server configuration and one successful real Hostinger database smoke test are required before operational use. This release does not claim an independent security audit.
 
