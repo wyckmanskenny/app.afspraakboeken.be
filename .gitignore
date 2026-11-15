@@ -1,0 +1,8 @@
+config.php
+config.local.php
+.env
+.env.*
+!.env.example
+*.log
+tests/.runtime/
+node_modules/
