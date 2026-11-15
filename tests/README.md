@@ -1,6 +1,6 @@
 # Backend verification
 
-Run `python3 tests/configuration.py` for the database-free configuration path and guard checks. Set `PHP_BIN` if PHP is not on PATH. The hosting fallback also requires a separate live HTTP check: `/api/private/access-check.txt` must return 403. PHP's local development server does not enforce `.htaccess`.
+Run `python3 tests/configuration.py` for the database-free configuration path and guard checks. Set `PHP_BIN` if PHP is not on PATH. The hosting fallback also requires a separate live HTTP check: `/api/private/config.example.php` must return 403 without source or data. After duplicating it as `config.php`, verify that file before filling it in. The current Hostinger deployment does not enforce `.htaccess`, so the fallback relies on PHP execution and its internal guard, not a directory-wide HTTP deny.
 
 Use a fresh **local disposable** MySQL/MariaDB database and a local PHP 8.2+ test server. Never use a production database: the installer test expects an empty schema. The integration test rejects non-loopback URLs.
 

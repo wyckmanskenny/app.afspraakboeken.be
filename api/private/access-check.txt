@@ -1,2 +1,0 @@
-This is a non-secret access check. This file must return HTTP 403 via the website.
-If this text is visible in a browser, do not put configuration in this directory.

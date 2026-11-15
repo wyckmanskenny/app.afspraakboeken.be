@@ -17,8 +17,7 @@ with tempfile.TemporaryDirectory(dir=runtime) as temporary:
     private = api / 'private'
     private.mkdir(parents=True)
     shutil.copy(root / 'api/bootstrap.php', api / 'bootstrap.php')
-    shutil.copy(root / 'api/private/.htaccess', private / '.htaccess')
-    example = (root / 'api/config.example.php').read_text().replace(
+    example = (root / 'api/private/config.example.php').read_text().replace(
         "'app_key' => ''", "'app_key' => 'test-only-key-with-at-least-32-characters'")
     (private / 'config.php').write_text(example)
     code = "require $argv[1]; try { echo configuration()['db']['name']; } catch (ApiError $e) { echo $e->status; }"
@@ -33,11 +32,10 @@ with tempfile.TemporaryDirectory(dir=runtime) as temporary:
     print('PASS protected hosting fallback loads configuration')
     assert load({'AFSPRAAKBOEKEN_CONFIG': str(base / 'missing.php')}) == '503'
     print('PASS explicit missing path does not silently fall back')
-    (private / '.htaccess').write_text('Require all granted\n')
+    (private / 'config.php').unlink()
     assert load() == '503'
-    (private / '.htaccess').unlink()
-    assert load() == '503'
-    print('PASS missing or relaxed protection fails closed')
+    (private / 'config.php').write_text(example)
+    print('PASS missing configuration fails closed')
     outside = base / 'afspraakboeken-private'
     outside.mkdir()
     (outside / 'config.php').write_text(example.replace('HOSTINGER_DATABASE_NAME', 'EXTERNAL_CONFIG'))
@@ -45,7 +43,10 @@ with tempfile.TemporaryDirectory(dir=runtime) as temporary:
     print('PASS external configuration keeps priority')
     assert load({'AFSPRAAKBOEKEN_CONFIG': str(private / 'config.php')}) == 'HOSTINGER_DATABASE_NAME'
     print('PASS explicit configuration path is supported')
-    direct = subprocess.run([php, '-n', str(private / 'config.php')],
-                            env=environment, text=True, capture_output=True, check=True)
-    assert direct.stdout == '' and direct.stderr == ''
-    print('PASS direct PHP execution returns no configuration contents')
+    for template in [private / 'config.php', root / 'api/config.example.php']:
+        for defined_false in [False, True]:
+            direct_code = ("define('AFSPRAAKBOEKEN_CONFIG_LOAD', false);" if defined_false else '') + "require $argv[1]; echo 'GUARD_FAILED';"
+            direct = subprocess.run([php, '-n', '-r', direct_code, str(template)],
+                                    env=environment, text=True, capture_output=True, check=True)
+            assert direct.stdout == '' and direct.stderr == ''
+    print('PASS both PHP templates stop direct execution before returning values')

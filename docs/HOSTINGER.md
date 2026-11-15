@@ -33,16 +33,16 @@ De standaardcode zoekt twee niveaus boven de map `api`, daarna in `afspraakboeke
 
 ### Route B — als Hostinger geen map naast public_html toestaat
 
-Vanaf versie 0.9.1 is de alternatieve map `public_html/api/private` meegeleverd. De app gebruikt deze alleen wanneer er geen externe configuratie bestaat en geen expliciet configuratiepad is ingesteld.
+Vanaf versie **0.9.2** is het voorbeeld `public_html/api/private/config.example.php` meegeleverd. Je hoeft zelf geen map te maken. De app gebruikt `api/private/config.php` alleen wanneer er geen externe configuratie bestaat en geen expliciet configuratiepad is ingesteld.
 
-1. Controleer eerst **https://app.afspraakboeken.be/api/private/access-check.txt**. Deze URL moet **403 Forbidden** geven. De tekst van het testbestand mag niet zichtbaar zijn; een 404 is ook geen geslaagde controle. Vul nog geen geheimen in als deze controle mislukt.
-2. Controleer in Bestandsbeheer dat `public_html/api/private/.htaccess` bestaat en uitsluitend `Require all denied` bevat. Deze regel blokkeert de volledige map, inclusief eventuele kopieën. De configuratielader weigert deze alternatieve route als het beveiligingsbestand ontbreekt of gewijzigd is.
-3. Kopieer `public_html/api/config.example.php` naar `public_html/api/private/config.php`. **Kopieer**, verplaats het voorbeeld niet. Behoud de PHP-beveiligingscontrole bovenaan; alleen de configuratievelden onder `return [` pas je aan.
-4. Open **https://app.afspraakboeken.be/api/private/config.php**: ook dit bestand moet **403 Forbidden** geven. Vul de gegevens vervolgens uitsluitend via Hostinger Bestandsbeheer in.
+1. Open in Hostinger Bestandsbeheer **public_html → api → private**.
+2. Dupliceer **config.example.php** en geef de kopie de exacte naam **config.php**. Verplaats of bewerk het voorbeeldbestand zelf niet: dat wordt bij GitHub-updates vervangen.
+3. Behoud de PHP-beveiligingscontrole bovenaan de kopie; alleen de configuratievelden onder `return [` pas je aan. Open **https://app.afspraakboeken.be/api/private/config.php** voordat je gegevens invult: dit moet **HTTP 403** geven zonder bestandsinhoud. Een 404 is geen geslaagde controle. Het voorbeeld op **https://app.afspraakboeken.be/api/private/config.example.php** moet hetzelfde gedrag hebben.
+4. Vul vervolgens uitsluitend via Hostinger Bestandsbeheer de waarden in `config.php` in, zoals hieronder beschreven. De app kan dit bestand intern inladen; rechtstreeks uitvoeren via de website wordt door de PHP-controle beëindigd.
 
-Deze alternatieve locatie staat fysiek binnen `public_html`, maar is via HTTP afgeschermd. De PHP-beveiligingscontrole voorkomt bovendien rechtstreeks uitvoeren buiten de configuratielader. Dit vervangt voor Route B de eerdere instructie om altijd naast `public_html` te werken. Verwijder of versoepel de beveiligingsregels niet.
+Deze route steunt op **werkende PHP-uitvoering en de PHP-beveiligingscontrole**. Tijdens de controle op 15 november 2026 voerde deze Hostinger-omgeving PHP uit, maar blokkeerde `.htaccess` het onschuldige tekst-testbestand niet. De meegeleverde `.htaccess` is daarom alleen extra bescherming op servers die die regel wél toepassen; de hele map is op deze hosting niet afgeschermd. Zet hier uitsluitend het exacte PHP-configuratiebestand, geen `.txt`, `.json`, `.bak`, `.zip` of andere kopieën met geheimen. Als een webaanvraag PHP-broncode toont, gebruik deze route niet.
 
-Het ingevulde `config.php` en alle andere niet-meegeleverde bestanden in deze map worden door Git genegeerd. Bewaar geen geheimen in `config.example.php`, `.htaccess`, een browserformulier of de repository. Maak een privéback-up buiten de webmap; een hostingdeploy die de hele webmap wist moet deze lokale configuratie behouden of herstellen. Controleer de afscherming opnieuw na wijzigingen aan de hostingconfiguratie.
+Het ingevulde `config.php` en alle andere niet-meegeleverde bestanden in deze map worden door Git genegeerd. Bewaar geen geheimen in `config.example.php`, `.htaccess`, een browserformulier of de repository. Bewaar een privéback-up buiten de webmap. Controleer na hostingwijzigingen opnieuw dat PHP-bestanden worden uitgevoerd en de rechtstreekse configuratie-URL 403 geeft. Een hostingdeploy die de hele webmap wist moet de lokale configuratie behouden of herstellen; Git-uitsluiting alleen garandeert dat niet.
 
 ### De waarden invullen — voor beide routes
 

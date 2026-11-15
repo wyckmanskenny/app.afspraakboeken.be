@@ -20,14 +20,9 @@ function configuration(): array {
     $explicitPath = getenv('AFSPRAAKBOEKEN_CONFIG');
     $path = $explicitPath ?: dirname(__DIR__, 2) . '/afspraakboeken-private/config.php';
     if (!$explicitPath && !is_file($path)) {
-        // Restricted hosting can use the directory denied by its own .htaccess.
+        // Restricted hosting uses a PHP-guarded config in api/private.
         // Never fall back from an explicitly configured (but missing) path.
-        $privateDirectory = __DIR__ . '/private';
-        $rules = $privateDirectory . '/.htaccess';
-        if (!is_file($rules) || trim((string) file_get_contents($rules)) !== 'Require all denied') {
-            fail(503, 'De omgeving wordt klaargezet. Probeer het later opnieuw.');
-        }
-        $path = $privateDirectory . '/config.php';
+        $path = __DIR__ . '/private/config.php';
     }
     if (!is_file($path)) fail(503, 'De omgeving wordt klaargezet. Probeer het later opnieuw.');
     if (!defined('AFSPRAAKBOEKEN_CONFIG_LOAD')) define('AFSPRAAKBOEKEN_CONFIG_LOAD', true);

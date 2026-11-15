@@ -9,8 +9,8 @@ try {
         header('Access-Control-Allow-Origin: *');
         try{
             configuration();$ready=(int)query("SELECT COUNT(*) FROM ab_users WHERE role='superadmin'")->fetchColumn()>0;
-            respond(['ready'=>$ready,'version'=>'0.9.1']);
-        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.9.1'],503);}
+            respond(['ready'=>$ready,'version'=>'0.9.2']);
+        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.9.2'],503);}
     }
     configuration();
     if($method==='OPTIONS'&&$route==='contact'){origin_guard(true);respond([],204);}
