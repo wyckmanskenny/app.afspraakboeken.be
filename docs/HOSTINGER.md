@@ -16,7 +16,9 @@ Dit hoort bij een Custom PHP/HTML-site. Gebruik PHP 8.2 of nieuwer met PDO MySQL
 
 Officiële instructie: https://www.hostinger.com/support/1583542-how-to-create-a-new-mysql-database-in-hostinger/
 
-## 2. Privéconfiguratie buiten de webmap
+## 2. De configuratie plaatsen
+
+### Route A — als je naast public_html een map kunt maken
 
 Maak bij de app-website **naast** `public_html` een map `afspraakboeken-private`. Plaats daar een kopie van `api/config.example.php`, hernoemd naar `config.php`.
 
@@ -27,7 +29,22 @@ Verwachte indeling bij een afzonderlijke Hostinger-website:
 - `public_html/api/index.php` — API
 - `public_html/install/index.html` — eenmalige eerste-accountinstallatie
 
-De standaardcode zoekt twee niveaus boven de map `api`, daarna in `afspraakboeken-private/config.php`. Controleer dat deze privémap **ook niet binnen de webmap van de hoofdwebsite** ligt. Als jouw app onder een submap van een andere publieke website staat, gebruik dan een absoluut privépad via de serveromgevingvariabele `AFSPRAAKBOEKEN_CONFIG`. Zet geen databasegegevens in `public_html`, `.htaccess`, een browserformulier of de repository.
+De standaardcode zoekt twee niveaus boven de map `api`, daarna in `afspraakboeken-private/config.php`. Controleer dat deze privémap **ook niet binnen de webmap van de hoofdwebsite** ligt. Als jouw app onder een submap van een andere publieke website staat, gebruik dan een absoluut privépad via de serveromgevingvariabele `AFSPRAAKBOEKEN_CONFIG`.
+
+### Route B — als Hostinger geen map naast public_html toestaat
+
+Vanaf versie 0.9.1 is de alternatieve map `public_html/api/private` meegeleverd. De app gebruikt deze alleen wanneer er geen externe configuratie bestaat en geen expliciet configuratiepad is ingesteld.
+
+1. Controleer eerst **https://app.afspraakboeken.be/api/private/access-check.txt**. Deze URL moet **403 Forbidden** geven. De tekst van het testbestand mag niet zichtbaar zijn; een 404 is ook geen geslaagde controle. Vul nog geen geheimen in als deze controle mislukt.
+2. Controleer in Bestandsbeheer dat `public_html/api/private/.htaccess` bestaat en uitsluitend `Require all denied` bevat. Deze regel blokkeert de volledige map, inclusief eventuele kopieën. De configuratielader weigert deze alternatieve route als het beveiligingsbestand ontbreekt of gewijzigd is.
+3. Kopieer `public_html/api/config.example.php` naar `public_html/api/private/config.php`. **Kopieer**, verplaats het voorbeeld niet. Behoud de PHP-beveiligingscontrole bovenaan; alleen de configuratievelden onder `return [` pas je aan.
+4. Open **https://app.afspraakboeken.be/api/private/config.php**: ook dit bestand moet **403 Forbidden** geven. Vul de gegevens vervolgens uitsluitend via Hostinger Bestandsbeheer in.
+
+Deze alternatieve locatie staat fysiek binnen `public_html`, maar is via HTTP afgeschermd. De PHP-beveiligingscontrole voorkomt bovendien rechtstreeks uitvoeren buiten de configuratielader. Dit vervangt voor Route B de eerdere instructie om altijd naast `public_html` te werken. Verwijder of versoepel de beveiligingsregels niet.
+
+Het ingevulde `config.php` en alle andere niet-meegeleverde bestanden in deze map worden door Git genegeerd. Bewaar geen geheimen in `config.example.php`, `.htaccess`, een browserformulier of de repository. Maak een privéback-up buiten de webmap; een hostingdeploy die de hele webmap wist moet deze lokale configuratie behouden of herstellen. Controleer de afscherming opnieuw na wijzigingen aan de hostingconfiguratie.
+
+### De waarden invullen — voor beide routes
 
 Vul in de privéconfiguratie de databasehost, poort, volledige databasenaam, gebruiker en het wachtwoord in. Gebruik de hostnaam die Hostinger aangeeft; normaal is dit `localhost`. Laat `app_url` op `https://app.afspraakboeken.be` en `secure_cookies` op `true` staan.
 

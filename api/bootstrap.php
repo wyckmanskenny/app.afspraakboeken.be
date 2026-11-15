@@ -17,8 +17,20 @@ function respond(array $data, int $status = 200): never {
 function configuration(): array {
     static $config;
     if ($config !== null) return $config;
-    $path = getenv('AFSPRAAKBOEKEN_CONFIG') ?: dirname(__DIR__, 2) . '/afspraakboeken-private/config.php';
+    $explicitPath = getenv('AFSPRAAKBOEKEN_CONFIG');
+    $path = $explicitPath ?: dirname(__DIR__, 2) . '/afspraakboeken-private/config.php';
+    if (!$explicitPath && !is_file($path)) {
+        // Restricted hosting can use the directory denied by its own .htaccess.
+        // Never fall back from an explicitly configured (but missing) path.
+        $privateDirectory = __DIR__ . '/private';
+        $rules = $privateDirectory . '/.htaccess';
+        if (!is_file($rules) || trim((string) file_get_contents($rules)) !== 'Require all denied') {
+            fail(503, 'De omgeving wordt klaargezet. Probeer het later opnieuw.');
+        }
+        $path = $privateDirectory . '/config.php';
+    }
     if (!is_file($path)) fail(503, 'De omgeving wordt klaargezet. Probeer het later opnieuw.');
+    if (!defined('AFSPRAAKBOEKEN_CONFIG_LOAD')) define('AFSPRAAKBOEKEN_CONFIG_LOAD', true);
     $config = require $path;
     if (!is_array($config) || strlen($config['app_key'] ?? '') < 32 || empty($config['db']['name'])) {
         fail(503, 'De omgeving wordt klaargezet. Probeer het later opnieuw.');

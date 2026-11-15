@@ -6,3 +6,6 @@ config.local.php
 *.log
 tests/.runtime/
 node_modules/
+/api/private/*
+!/api/private/.htaccess
+!/api/private/access-check.txt

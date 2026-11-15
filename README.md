@@ -14,7 +14,7 @@ PHP 8.2+ / MySQL 8 or MariaDB 10.6+, with PDO MySQL, JSON, OpenSSL and InnoDB. N
 
 ## Install
 
-Follow [docs/HOSTINGER.md](docs/HOSTINGER.md). Database credentials, the application key and setup key must live **outside every public web directory and outside Git**. `api/config.example.php` contains placeholders only. Nothing creates a Hostinger database automatically.
+Follow [docs/HOSTINGER.md](docs/HOSTINGER.md). Prefer storing database credentials and keys **outside every public web directory**. For restricted Hostinger accounts, the documented fallback is `api/private/config.php`, protected by a directory-wide HTTP deny rule and a PHP guard; verify HTTP 403 before adding secrets. Both locations are outside Git. `api/config.example.php` contains placeholders only. Nothing creates a Hostinger database automatically.
 
 The API is `api/index.php?route=…` and does not depend on URL rewriting. `health` returns only readiness and version, with no-store caching. Until configured, login is unavailable and the homepage contact form remains disabled. The installation endpoint permanently refuses a second bootstrap after a superadmin exists.
 
