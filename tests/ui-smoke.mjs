@@ -193,3 +193,23 @@ test('CRM supports manual leads, column editing and focus mode without losing th
   ui.document.querySelector('[data-action="crm-focus"]').click();assert.equal(ui.document.querySelector('.crm-focus'),null);
  }finally{await ui.close();}
 });
+test('CRM preview uses fictitious contacts and retains exports without querying paid contact data',async()=>{
+ const ui=await setup(route=>route==='me'?result({csrf:'test',user:{role:'admin',tenant_id:company.id,name:'Owner'}}):route==='crm/request'?result({message:'Received'}):result({tenant:company,services:[],bookings:[],leads:[]}));
+ try{await until(()=>ui.document.querySelector('[data-page="customercrm"]'));ui.document.querySelector('[data-page="customercrm"]').click();assert.ok(ui.document.body.textContent.includes('Voorbeeld met fictieve contacten'));assert.equal(ui.calls.filter(c=>c.route==='crm/contacts').length,0);assert.equal(ui.document.querySelectorAll('a[href*="crm/export"]').length,3);ui.document.querySelector('[data-crm="request"]').click();await until(()=>ui.document.querySelector('.crm-request-status').textContent.includes('ontvangen'));assert.equal(ui.calls.filter(c=>c.route==='crm/request').length,1);}finally{await ui.close();}
+});
+test('Paid CRM saves a contact and a note, then adds a follow-up action inside the same customer file',async()=>{
+ const tenant=structuredClone(company);tenant.settings.features.crmPlus=true;let contact={id:'e'.repeat(32),name:'Jan',email:'jan@example.test',phone:'',company:'',address:'',tags:[],revision:1},notes=[],tasks=[];
+ const ui=await setup((route,data)=>{
+  if(route==='me')return result({csrf:'test',user:{role:'admin',tenant_id:tenant.id,name:'Owner'}});
+  if(route==='crm/contacts')return result({contacts:[contact],tags:[],tasks:[],total:1,offset:0});
+  if(route==='crm/save'){contact={...contact,...data,id:'e'.repeat(32)};return result({id:contact.id});}
+  if(route==='crm/contact')return result({contact,notes,tasks,leads:[],bookings:[]});
+  if(route==='crm/note'){notes.push({content:data.content,created_at:'2026-11-16 10:00:00',author:'Owner'});return result({id:'note'});}
+  if(route==='crm/task'){tasks.push({id:'f'.repeat(32),title:data.title,due_date:data.due_date,revision:1,completed:0});return result({id:tasks[0].id});}
+  return result({tenant,services:[],bookings:[],leads:[]});
+ });
+ try{await until(()=>ui.document.querySelector('[data-page="customercrm"]'));ui.document.querySelector('[data-page="customercrm"]').click();await until(()=>ui.document.querySelector('[data-crm="new"]'));ui.document.querySelector('[data-crm="new"]').click();let form=ui.document.querySelector('[data-crm-form="contact"]');form.elements.name.value='<script>Jan</script>';form.elements.email.value='jan@example.test';form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.document.querySelector('[data-crm-form="note"]'));assert.equal(ui.document.querySelector('#customer-crm script'),null);assert.ok(ui.document.getElementById('customer-crm').textContent.includes('<script>Jan</script>'));
+ form=ui.document.querySelector('[data-crm-form="note"]');form.elements.content.value='Discussed quote';form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.document.querySelector('.crm-notes').textContent.includes('Discussed quote'));
+ form=ui.document.querySelector('[data-crm-form="task"]');form.elements.title.value='Call back';form.elements.due_date.value='2026-11-20';form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.document.querySelector('.crm-task-list').textContent.includes('Call back'));assert.equal(ui.calls.filter(c=>c.route==='crm/note').length,1);assert.equal(ui.calls.filter(c=>c.route==='crm/task').length,1);
+ }finally{await ui.close();}
+});

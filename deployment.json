@@ -1,5 +1,5 @@
 {
-  "version": "0.12.0",
+  "version": "0.13.0",
   "site": "app.afspraakboeken.be",
-  "release": "crm-board-management"
+  "release": "optional-customer-crm"
 }

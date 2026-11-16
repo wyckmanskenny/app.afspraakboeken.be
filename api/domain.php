@@ -5,7 +5,7 @@ function default_settings(): array {
         'location'=>'Op afspraak','notice'=>24,'intake'=>['mode'=>'booking','serviceSelection'=>true],
         'hours'=>array_map(fn($i)=>['open'=>$i>0 && $i<6,'start'=>'09:00','end'=>'18:00'],range(0,6)),
         'blocks'=>[], 'branding'=>['primary'=>'#264653','secondary'=>'#2a9d8f','background'=>'#f8fafb','font'=>'dm-sans'],
-        'features'=>['prices'=>true,'media'=>true,'address'=>false,'notes'=>true,'crm'=>true,'tracking'=>false],
+        'features'=>['prices'=>true,'media'=>true,'address'=>false,'notes'=>true,'crm'=>true,'crmPlus'=>false,'tracking'=>false],
         'subject'=>'Je afspraak bij {{bedrijf}}',
         'message'=>"Dag {{voornaam}},\n\nJe afspraak voor {{dienst}} staat gepland op {{datum}} om {{tijd}}.\n\nTot dan!\n{{bedrijf}}",
     ];
@@ -19,6 +19,7 @@ function time_minutes(string $value): int {
     return (int)substr($value,0,2)*60+(int)substr($value,3,2);
 }
 function clean_settings(array $data, array $previous, bool $agency): array {
+    $previous['features']['crmPlus']=$previous['features']['crmPlus']??false;
     $out=$previous;
     if(isset($data['intake'])){
         $intake=$data['intake'];

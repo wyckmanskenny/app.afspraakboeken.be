@@ -5,6 +5,7 @@ require __DIR__.'/domain.php';
 require __DIR__.'/mailer.php';
 require __DIR__.'/lifecycle.php';
 require __DIR__.'/leads.php';
+require __DIR__.'/crm.php';
 
 try {
     $route=trim($_GET['route']??'health','/');$method=$_SERVER['REQUEST_METHOD'];
@@ -12,9 +13,9 @@ try {
         header('Access-Control-Allow-Origin: *');
         try{
             configuration();$ready=(int)query("SELECT COUNT(*) FROM ab_users WHERE role='superadmin'")->fetchColumn()>0;
-            if($ready){ensure_lifecycle_schema();ensure_leads_schema();}
-            respond(['ready'=>$ready,'version'=>'0.12.0','trial_available'=>$ready&&mail_configuration()!==null]);
-        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.12.0'],503);}
+            if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();}
+            respond(['ready'=>$ready,'version'=>'0.13.0','trial_available'=>$ready&&mail_configuration()!==null]);
+        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.13.0'],503);}
     }
     configuration();
     if($method==='OPTIONS'&&$route==='contact'){origin_guard(true);respond([],204);}
@@ -34,7 +35,7 @@ try {
         }finally{query('SELECT RELEASE_LOCK(?)',[$lock]);}
         respond(['message'=>'Je superadminaccount is aangemaakt. Je kunt nu aanmelden.'],201);
     }
-    ensure_lifecycle_schema();ensure_leads_schema();
+    ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();
     if($route==='trial/signup'&&$method==='POST')respond(trial_signup(body()),201);
     if(in_array($route,['trial/check','trial/accept'],true)&&$method==='POST')respond(trial_accept(body(),$route==='trial/accept'));
     if($route==='login'&&$method==='POST'){
@@ -114,11 +115,20 @@ try {
             $end=$start->modify('+'.((int)$s['duration']+(int)$s['buffer']).' minutes');$id=uid();
             $tracking=$consent&&$settings['features']['tracking'];
             query('INSERT INTO ab_bookings(id,tenant_id,service_id,service_name,duration,buffer,price_cents,booking_date,booking_time,starts_at,ends_at,customer_name,customer_email,customer_phone,customer_address,customer_notes,source,campaign,marketing_consent,request_key,request_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[$id,$tenantId,$serviceId,$s['name'],$s['duration'],$s['buffer'],$s['price_cents'],$date,$time,$start->setTimezone($utc)->format('Y-m-d H:i:s'),$end->setTimezone($utc)->format('Y-m-d H:i:s'),$name,$email,$phone,$settings['features']['address']?$address:'',$settings['features']['notes']?$notes:'',$tracking?$source:'website',$tracking?$campaign:'',(int)$tracking,$key,$fingerprint]);
+            crm_sync($t,'booking',$id);
             return ['id'=>$id,'status'=>'confirmed','replayed'=>false];
         });respond($result,201);
     }
     $user=identity(true,$route!=='notifications');
     if($method==='POST')csrf($user);
+    if($route==='crm/contacts'&&$method==='GET')respond(crm_list($user,$_GET));
+    if($route==='crm/contact'&&$method==='GET')respond(crm_detail($user,$_GET));
+    if($route==='crm/save'&&$method==='POST')respond(crm_save($user,body()));
+    if($route==='crm/note'&&$method==='POST')respond(crm_note($user,body()));
+    if($route==='crm/task'&&$method==='POST')respond(crm_task($user,body()));
+    if($route==='crm/import'&&$method==='POST')respond(crm_import($user,body()));
+    if($route==='crm/export'&&$method==='GET')crm_export($user,$_GET);
+    if($route==='crm/request'&&$method==='POST')respond(crm_request($user,body()));
     if($route==='lead/create'&&$method==='POST')respond(create_manual_lead($user,body()),201);
     if($route==='crm/columns'&&$method==='POST')respond(save_crm_columns($user,body()));
     if($route==='lead/update'&&$method==='POST')respond(update_lead($user,body()));
@@ -182,6 +192,7 @@ try {
             if(!empty($billing['email']))$billing['email']=email($billing);
             $active=flag($data,'active');
             query('UPDATE ab_tenants SET active=?,plan_type=?,monthly_cents=?,lifetime_cents=?,billing_json=?,revision=revision+1 WHERE id=?',[(int)$active,$plan,integer($data,'monthly_cents',0,10000000),integer($data,'lifetime_cents',0,10000000),encoded($billing),$t['id']]);
+            if(array_key_exists('crm_plus',$data)){$settings=decoded($t['settings_json']);$settings['features']['crmPlus']=flag($data,'crm_plus');query('UPDATE ab_tenants SET settings_json=? WHERE id=?',[encoded($settings),$t['id']]);}
             if(!$active)query('DELETE s FROM ab_sessions s JOIN ab_users u ON u.id=s.user_id WHERE u.tenant_id=?',[$t['id']]);
             audit($user['id'],$active?'tenant.activated':'tenant.paused',$t['id']);return ['ok'=>true];
         });respond($result);

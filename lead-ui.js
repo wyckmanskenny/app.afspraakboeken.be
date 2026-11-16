@@ -1,5 +1,5 @@
-import {esc,dateLabel,icon,button,pill,fieldError} from './ui.js?v=0.12.0';
-import {TODAY,addDays} from './core.js?v=0.12.0';
+import {esc,dateLabel,icon,button,pill,fieldError} from './ui.js?v=0.13.0';
+import {TODAY,addDays} from './core.js?v=0.13.0';
 export const intake=t=>t.settings.intake||{mode:'booking',serviceSelection:true};
 export const stages={new:'Nieuw',contacted:'Gecontacteerd',done:'Afgerond'};
 export const columns=t=>t.settings.crmColumns||Object.entries(stages).map(([id,name])=>({id,name}));

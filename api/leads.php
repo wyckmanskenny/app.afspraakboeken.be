@@ -48,6 +48,7 @@ function public_lead(array $data): array {
         $id=uid();$tracking=$consent&&$settings['features']['tracking'];
         query('INSERT INTO ab_leads(id,tenant_id,service_id,service_name,customer_name,customer_email,customer_phone,customer_address,customer_notes,internal_notes,source,campaign,marketing_consent,request_key,request_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[
             $id,$tenantId,$s['id']??null,$s['name']??'',$name,$email,$phone,$settings['features']['address']?$address:'',$notes,'',$tracking?$source:'website',$tracking?$campaign:'',(int)$tracking,$key,$fingerprint]);
+        crm_sync($t,'lead',$id);
         audit(null,'lead.received',$id);
         return ['id'=>$id,'status'=>'received','replayed'=>false];
     });
@@ -97,6 +98,7 @@ function schedule_lead(array $user,array $data): array {
         query('INSERT INTO ab_bookings(id,tenant_id,service_id,service_name,duration,buffer,price_cents,booking_date,booking_time,starts_at,ends_at,customer_name,customer_email,customer_phone,customer_address,customer_notes,stage,source,campaign,marketing_consent,request_key,request_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[
             $booking,$t['id'],$service,$s['name'],$s['duration'],$s['buffer'],$s['price_cents'],$date,$time,$start->setTimezone($utc)->format('Y-m-d H:i:s'),$end->setTimezone($utc)->format('Y-m-d H:i:s'),$lead['customer_name'],$lead['customer_email'],$lead['customer_phone'],$lead['customer_address'],$lead['customer_notes'],'contacted',$lead['source'],$lead['campaign'],$lead['marketing_consent'],bin2hex(random_bytes(32)),hash('sha256',encoded([$id,$service,$date,$time]))]);
         query("UPDATE ab_leads SET booking_id=?,stage='contacted',revision=revision+1 WHERE id=?",[$booking,$id]);
+        crm_sync($t,'lead',$id);crm_sync($t,'booking',$booking);
         audit($user['id'],'lead.scheduled',$id);return ['id'=>$booking,'replayed'=>false];
     });
 }
@@ -135,6 +137,7 @@ function create_manual_lead(array $user,array $data): array {
         $existing=row('SELECT id,request_hash FROM ab_leads WHERE tenant_id=? AND request_key=?',[$t['id'],$key]);
         if($existing){if(!hash_equals($existing['request_hash'],$hash))fail(409,'Deze lead is al opgeslagen.');return ['id'=>$existing['id']];}
         $id=uid();query("INSERT INTO ab_leads(id,tenant_id,service_id,service_name,customer_name,customer_email,customer_phone,customer_address,customer_notes,internal_notes,source,request_key,request_hash) VALUES (?,?,?,?,?,?,?,?,?,?,'manual',?,?)",[$id,$t['id'],$service['id']??null,$service['name']??'',$name,$mail,$phone,$address,$notes,'',$key,$hash]);
+        crm_sync($t,'lead',$id);
         audit($user['id'],'lead.created',$id);return ['id'=>$id];
     });
 }

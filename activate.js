@@ -1,4 +1,4 @@
-import {esc,logo,fieldError,request,submit} from './ui.js?v=0.12.0';
+import {esc,logo,fieldError,request,submit} from './ui.js?v=0.13.0';
 const trial=location.hash.startsWith('#trial=');const token=location.hash.slice(trial?7:1);history.replaceState(null,'',location.pathname);
 const app=document.getElementById('app');
 async function start(){

@@ -141,6 +141,8 @@ try:
 
     from lead_integration import run as run_lead_tests
     run_lead_tests(Client,owner,anonymous,messages,envelopes,config,state)
+    from crm_integration import run as run_crm_tests
+    run_crm_tests(Client,owner,anonymous,messages)
 
     state['reject']=True
     failed=create(owner,'smtp-failure@example.test');assert failed['mail']['status']=='failed'
