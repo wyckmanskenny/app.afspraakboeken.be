@@ -90,14 +90,15 @@ function service_input(array $data): array {
 function booking_view(array $b): array {
     return ['id'=>$b['id'],'service'=>$b['service_id'],'serviceName'=>$b['service_name'],'duration'=>(int)$b['duration'],'buffer'=>(int)$b['buffer'],'price'=>(int)$b['price_cents']/100,'date'=>$b['booking_date'],'time'=>$b['booking_time'],'name'=>$b['customer_name'],'email'=>$b['customer_email'],'phone'=>$b['customer_phone'],'address'=>$b['customer_address'],'notes'=>$b['customer_notes'],'status'=>$b['status'],'stage'=>$b['stage'],'source'=>$b['source'],'campaign'=>$b['campaign']];
 }
-function slots(array $tenant,array $service,string $date): array {
+function slots(array $tenant,array $service,string $date,?string $ignore=null,bool $fresh=false): array {
     if (!valid_date($date)) fail(422,'Kies een geldige datum.');
     $timezone=new DateTimeZone('Europe/Brussels');$now=new DateTimeImmutable('now',$timezone);$today=$now->format('Y-m-d');
     $settings=decoded($tenant['settings_json']);
     if (!$tenant['active']||!$service['active']||$date<$today||$date>$now->modify('+60 days')->format('Y-m-d')||in_array($date,$settings['blocks'],true)) return [];
     $day=new DateTimeImmutable($date.' 12:00:00',$timezone);$hours=$settings['hours'][(int)$day->format('w')];
     if (!$hours['open']) return [];
-    $busy=query('SELECT starts_at,ends_at FROM ab_bookings WHERE tenant_id=? AND booking_date=? AND status=\'confirmed\'',[$tenant['id'],$date])->fetchAll();
+    $busy=query('SELECT starts_at,ends_at FROM ab_bookings WHERE tenant_id=? AND booking_date=? AND status=\'confirmed\' AND id<>?',[$tenant['id'],$date,$ignore??''])->fetchAll();
+    $busy=array_merge($busy,google_busy($tenant['id'],$date,$fresh));
     $result=[];$length=(int)$service['duration']+(int)$service['buffer'];$utc=new DateTimeZone('UTC');
     for($minute=time_minutes($hours['start']);$minute+$length<=time_minutes($hours['end']);$minute+=30){
         $time=sprintf('%02d:%02d',intdiv($minute,60),$minute%60);

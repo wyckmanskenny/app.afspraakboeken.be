@@ -7,6 +7,7 @@ require __DIR__.'/lifecycle.php';
 require __DIR__.'/leads.php';
 require __DIR__.'/crm.php';
 require __DIR__.'/partners.php';
+require __DIR__.'/calendar.php';
 
 try {
     $route=trim($_GET['route']??'health','/');$method=$_SERVER['REQUEST_METHOD'];
@@ -14,9 +15,9 @@ try {
         header('Access-Control-Allow-Origin: *');
         try{
             configuration();$ready=(int)query("SELECT COUNT(*) FROM ab_users WHERE role='superadmin'")->fetchColumn()>0;
-            if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();}
-            respond(['ready'=>$ready,'version'=>'0.14.0','trial_available'=>$ready&&mail_configuration()!==null]);
-        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.14.0'],503);}
+            if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();}
+            respond(['ready'=>$ready,'version'=>'0.15.0','trial_available'=>$ready&&mail_configuration()!==null]);
+        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.15.0'],503);}
     }
     configuration();
     if($method==='OPTIONS'&&$route==='contact'){origin_guard(true);respond([],204);}
@@ -36,7 +37,8 @@ try {
         }finally{query('SELECT RELEASE_LOCK(?)',[$lock]);}
         respond(['message'=>'Je superadminaccount is aangemaakt. Je kunt nu aanmelden.'],201);
     }
-    ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();
+    ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();
+    if($route==='calendar/callback'&&$method==='GET'){$destination=google_callback(identity(),$_GET);header('Location: '.$destination,true,303);exit;}
     if($route==='public/partner'&&$method==='GET'){$p=partner_code($_GET['code']??'');if(!$p)fail(404,'Partner niet gevonden.');respond(['name'=>$p['name']]);}
     if(str_starts_with($route,'partner/'))partner_routes($route,$method);
     if($route==='trial/signup'&&$method==='POST')respond(trial_signup(body()),201);
@@ -115,17 +117,26 @@ try {
             if(intake_settings(decoded($t['settings_json']))['mode']!=='booking')fail(409,'De werkwijze is gewijzigd. Herlaad de pagina om een aanvraag te sturen.');
             $s=row('SELECT * FROM ab_services WHERE id=? AND tenant_id=? AND active=1',[$serviceId,$tenantId]);if(!$s)fail(404,'Deze dienst is niet beschikbaar.');
             $settings=decoded($t['settings_json']);if($settings['features']['address']&&$address==='')fail(422,'Vul het adres voor de afspraak in.');
-            if(!in_array($time,slots($t,$s,$date),true))fail(409,'Dit moment is intussen niet meer beschikbaar. Kies een ander tijdstip.');
+            if(!in_array($time,slots($t,$s,$date,null,true),true))fail(409,'Dit moment is intussen niet meer beschikbaar. Kies een ander tijdstip.');
             $start=new DateTimeImmutable($date.' '.$time,new DateTimeZone('Europe/Brussels'));$utc=new DateTimeZone('UTC');
             $end=$start->modify('+'.((int)$s['duration']+(int)$s['buffer']).' minutes');$id=uid();
             $tracking=$consent&&$settings['features']['tracking'];
             query('INSERT INTO ab_bookings(id,tenant_id,service_id,service_name,duration,buffer,price_cents,booking_date,booking_time,starts_at,ends_at,customer_name,customer_email,customer_phone,customer_address,customer_notes,source,campaign,marketing_consent,request_key,request_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[$id,$tenantId,$serviceId,$s['name'],$s['duration'],$s['buffer'],$s['price_cents'],$date,$time,$start->setTimezone($utc)->format('Y-m-d H:i:s'),$end->setTimezone($utc)->format('Y-m-d H:i:s'),$name,$email,$phone,$settings['features']['address']?$address:'',$settings['features']['notes']?$notes:'',$tracking?$source:'website',$tracking?$campaign:'',(int)$tracking,$key,$fingerprint]);
+            google_enqueue($tenantId,'booking:'.$id);
             crm_sync($t,'booking',$id);
             return ['id'=>$id,'status'=>'confirmed','replayed'=>false];
-        });respond($result,201);
+        });google_after_write($tenantId);respond($result,201);
     }
     $user=identity(true,$route!=='notifications');
     if($method==='POST')csrf($user);
+    if($route==='calendar/status'&&$method==='GET')respond(google_status($user,$_GET));
+    if($route==='calendar/connect'&&$method==='POST')respond(google_state($user,body()));
+    if($route==='calendar/list'&&$method==='GET'){$t=tenant_access($user,$_GET['tenant']??$user['tenant_id']);respond(['calendars'=>google_list($t['id'])]);}
+    if($route==='calendar/select'&&$method==='POST')respond(google_select($user,body()));
+    if($route==='calendar/disconnect'&&$method==='POST')respond(google_disconnect($user,body()));
+    if($route==='calendar/sync'&&$method==='POST'){$data=body();$t=tenant_access($user,$data['tenant']??$user['tenant_id']);if($user['role']!=='superadmin'&&trial_expired($t['id']))fail(402,'Activeer eerst je account.');limit_rate('calendar-manual',$t['id'],10,600);google_pull($t['id']);google_process($t['id'],10);respond(['ok'=>true]);}
+    if($route==='booking/slots'&&$method==='GET')respond(calendar_booking_slots($user,$_GET));
+    if($route==='booking/reschedule'&&$method==='POST')respond(calendar_reschedule($user,body()));
     if($route==='partners/list'&&$method==='GET')respond(partner_admin_list($user));
     if($route==='partners/detail'&&$method==='GET')respond(partner_admin_detail($user,$_GET));
     if($route==='partners/save'&&$method==='POST')respond(partner_admin_save($user,body()));
@@ -143,7 +154,7 @@ try {
     if($route==='crm/columns'&&$method==='POST')respond(save_crm_columns($user,body()));
     if($route==='lead/update'&&$method==='POST')respond(update_lead($user,body()));
     if($route==='lead/slots'&&$method==='GET')respond(lead_slots($user,$_GET));
-    if($route==='lead/schedule'&&$method==='POST')respond(schedule_lead($user,body()),201);
+    if($route==='lead/schedule'&&$method==='POST'){$data=body();$result=schedule_lead($user,$data);google_after_write($data['tenant']);respond($result,201);}
     if($route==='notifications'&&$method==='GET'){superadmin($user);respond(notifications());}
     if($route==='trial/upgrade'&&$method==='POST')respond(request_subscription($user,body()));
     if($route==='trial/convert'&&$method==='POST')respond(convert_trial($user,body()));
@@ -189,8 +200,9 @@ try {
             $settings=clean_settings($data['settings'],decoded($t['settings_json']),$user['role']==='superadmin');
             $name=isset($data['name'])?text($data,'name',120,true):$t['name'];$email=isset($data['email'])?email($data):$t['contact_email'];
             query('UPDATE ab_tenants SET name=?,contact_email=?,settings_json=?,revision=revision+1 WHERE id=?',[$name,$email,encoded($settings),$t['id']]);
+            foreach(array_unique(array_merge(decoded($t['settings_json'])['blocks'],$settings['blocks'])) as $day)if(in_array($day,decoded($t['settings_json'])['blocks'],true)!==in_array($day,$settings['blocks'],true))google_enqueue($t['id'],'block:'.$day);
             audit($user['id'],'tenant.settings',$t['id']);return ['ok'=>true];
-        });respond($result);
+        });google_after_write($data['tenant']);respond($result);
     }
     if($route==='tenant/admin'&&$method==='POST'){
         superadmin($user);$data=body();$result=transaction(function()use($user,$data){
@@ -246,9 +258,9 @@ try {
             $t=tenant_access($user,$data['tenant']??null,true);$id=identifier($data['id']??null);
             $b=row('SELECT * FROM ab_bookings WHERE id=? AND tenant_id=?',[$id,$t['id']]);if(!$b)fail(404,'Afspraak niet gevonden.');
             if(isset($data['stage'])){if(!decoded($t['settings_json'])['features']['crm'])fail(403,'Klantopvolging staat niet aan.');if(!in_array($data['stage'],array_column(crm_columns(decoded($t['settings_json'])),'id'),true))fail(422,'Ongeldige opvolgfase.');query('UPDATE ab_bookings SET stage=? WHERE id=?',[$data['stage'],$id]);}
-            if(isset($data['status'])){if($data['status']!=='cancelled')fail(422,'Een annulering kan niet automatisch worden teruggedraaid.');query('UPDATE ab_bookings SET status=\'cancelled\' WHERE id=?',[$id]);}
+            if(isset($data['status'])){if($data['status']!=='cancelled')fail(422,'Een annulering kan niet automatisch worden teruggedraaid.');query('UPDATE ab_bookings SET status=\'cancelled\' WHERE id=?',[$id]);google_enqueue($t['id'],'booking:'.$id);}
             audit($user['id'],'booking.updated',$id);return ['ok'=>true];
-        });respond($result);
+        });google_after_write($data['tenant']);respond($result);
     }
     if($route==='contacts'&&$method==='GET'){
         superadmin($user);$list=query("SELECT c.*,(SELECT a.action FROM ab_audit a WHERE a.target_id=c.id AND a.action IN ('contact.mail_sent','contact.mail_failed','contact.mail_not_configured') ORDER BY a.id DESC LIMIT 1) AS notification FROM ab_contacts c ORDER BY c.created_at DESC LIMIT 1000")->fetchAll();
@@ -262,5 +274,6 @@ try {
     }
     fail(404,'Niet gevonden.');
 }catch(ApiError $e){respond(['error'=>$e->getMessage()],$e->status);}
+catch(GoogleCalendarError $e){respond(['error'=>'De Google-agenda kon niet worden bijgewerkt. Probeer opnieuw via Agenda of verbind opnieuw met Google.'],503);}
 catch(PDOException $e){error_log('Afspraakboeken database error: '.$e->getCode());respond(['error'=>'Opslaan of ophalen lukt momenteel niet. Probeer het opnieuw.'],503);}
 catch(Throwable $e){error_log('Afspraakboeken request error: '.get_class($e));respond(['error'=>'Er ging iets mis. Probeer het opnieuw.'],500);}

@@ -233,3 +233,27 @@ test('Superadmin can create a partner with activation disabled by default',async
   throw Error(route);
  });try{await until(()=>ui.document.querySelector('[data-page="partners"]'));ui.document.querySelector('[data-page="partners"]').click();await until(()=>ui.document.querySelector('[data-pa="new"]'));ui.document.querySelector('[data-pa="new"]').click();const f=ui.document.querySelector('[data-pa-form="partner"]');assert.equal(f.elements.can_activate.checked,false);f.elements.name.value='Partner';f.elements.email.value='partner@example.test';f.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.document.querySelector('[data-pa-form="member"]'));assert.equal(ui.calls.find(c=>c.route==='partners/save').data.can_activate,false);assert.equal(ui.calls.some(c=>c.route==='partners/member'),false);}finally{await ui.close();}
 });
+
+test('Calendar status and explicit calendar selection stay inside the company workspace',async()=>{
+ let selected=false;
+ const ui=await setup(route=>route==='me'?result({csrf:'test',user:{id:'c'.repeat(32),role:'admin',name:'Owner',tenant_id:company.id}}):route==='calendar/status'?result({configured:true,connection:{calendar_id:selected?'calendar-id':null,calendar_name:'Work'},pending:0,cron:null}):route==='calendar/list'?result({calendars:[{id:'calendar-id',name:'Work'}]}):route==='calendar/select'?(selected=true,result({ok:true})):result({tenant:company,services:[service],bookings:[],booking_limit:2000}),'https://app.afspraakboeken.be/?view=calendar');
+ try{await until(()=>ui.document.querySelector('[data-gcal-form=select] option[value="calendar-id"]'));
+ const form=ui.document.querySelector('[data-gcal-form=select]');form.querySelector('select').value='calendar-id';form.querySelector('[name=confirmed]').checked=true;
+ form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.document.querySelector('[data-gcal=sync]'));
+ const saved=ui.calls.find(c=>c.route==='calendar/select').data;assert.equal(saved.tenant,company.id);assert.equal(saved.confirmed,true);assert.equal(saved.calendar,'calendar-id');
+ assert.ok(ui.document.querySelector('[data-gcal-form=disconnect] input[required]'));assert.equal(ui.document.querySelector('[data-page=tenants]'),null);
+ }finally{await ui.close();}
+});
+
+test('An existing booking can be moved after available times load, with stale-change protection',async()=>{
+ const day=new Date(Date.now()+3*86400000).toISOString().slice(0,10);
+ const booking={id:'e'.repeat(32),name:'Customer',email:'person@example.test',serviceName:'Advice',date:day,time:'09:00',status:'confirmed',duration:30,buffer:15,price:0};
+ const ui=await setup(route=>route==='me'?result({csrf:'test',user:{id:'c'.repeat(32),role:'admin',name:'Owner',tenant_id:company.id}}):route==='booking/slots'?result({times:['11:30']}):route==='booking/reschedule'?result({ok:true}):result({tenant:company,services:[service],bookings:[booking],booking_limit:2000}));
+ try{await until(()=>ui.document.querySelector('[data-page=bookings]'));ui.document.querySelector('[data-page=bookings]').click();
+ ui.document.querySelector('[data-action=booking-detail]').click();ui.document.querySelector('[data-action=booking-move]').click();
+ const form=ui.document.getElementById('booking-move-form');assert.equal(form.querySelector('[type=submit]').disabled,true);
+ const date=form.querySelector('[name=date]');date.value=day;date.dispatchEvent(new ui.window.Event('change',{bubbles:true}));
+ await until(()=>!form.querySelector('[type=submit]').disabled);form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.calls.some(c=>c.route==='booking/reschedule'));
+ const payload=ui.calls.find(c=>c.route==='booking/reschedule').data;assert.equal(payload.expected_time,'09:00');assert.equal(payload.time,'11:30');assert.equal(payload.tenant,company.id);
+ }finally{await ui.close();}
+});

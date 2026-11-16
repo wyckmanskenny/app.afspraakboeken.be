@@ -1,4 +1,4 @@
-import {esc,request,fieldError,submit,toast,money} from './ui.js?v=0.14.0';
+import {esc,request,fieldError,submit,toast,money} from './ui.js?v=0.15.0';
 const button=(label,action,extra='')=>`<button type="button" class="btn small" data-pa="${action}" ${extra}>${label}</button>`;
 export function mountPartnerAdmin(root,onError){let current=null;
  const draw=s=>{if(root.isConnected)root.innerHTML=s;};

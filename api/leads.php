@@ -93,11 +93,12 @@ function schedule_lead(array $user,array $data): array {
         if(integer($data,'revision',1,2147483647)!==(int)$lead['revision'])fail(409,'Deze aanvraag is elders gewijzigd. Vernieuw het overzicht.');
         if($lead['stage']==='done')fail(409,'Heropen de aanvraag voordat je een afspraak inplant.');
         $s=row('SELECT * FROM ab_services WHERE id=? AND tenant_id=? AND active=1',[$service,$t['id']]);if(!$s)fail(404,'Dienst niet gevonden.');
-        if(!in_array($time,slots($t,$s,$date),true))fail(409,'Dit moment is intussen niet meer beschikbaar. Kies een ander tijdstip.');
+        if(!in_array($time,slots($t,$s,$date,null,true),true))fail(409,'Dit moment is intussen niet meer beschikbaar. Kies een ander tijdstip.');
         $start=new DateTimeImmutable($date.' '.$time,new DateTimeZone('Europe/Brussels'));$utc=new DateTimeZone('UTC');$end=$start->modify('+'.((int)$s['duration']+(int)$s['buffer']).' minutes');$booking=uid();
         query('INSERT INTO ab_bookings(id,tenant_id,service_id,service_name,duration,buffer,price_cents,booking_date,booking_time,starts_at,ends_at,customer_name,customer_email,customer_phone,customer_address,customer_notes,stage,source,campaign,marketing_consent,request_key,request_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[
             $booking,$t['id'],$service,$s['name'],$s['duration'],$s['buffer'],$s['price_cents'],$date,$time,$start->setTimezone($utc)->format('Y-m-d H:i:s'),$end->setTimezone($utc)->format('Y-m-d H:i:s'),$lead['customer_name'],$lead['customer_email'],$lead['customer_phone'],$lead['customer_address'],$lead['customer_notes'],'contacted',$lead['source'],$lead['campaign'],$lead['marketing_consent'],bin2hex(random_bytes(32)),hash('sha256',encoded([$id,$service,$date,$time]))]);
         query("UPDATE ab_leads SET booking_id=?,stage='contacted',revision=revision+1 WHERE id=?",[$booking,$id]);
+        google_enqueue($t['id'],'booking:'.$booking);
         crm_sync($t,'lead',$id);crm_sync($t,'booking',$booking);
         audit($user['id'],'lead.scheduled',$id);return ['id'=>$booking,'replayed'=>false];
     });

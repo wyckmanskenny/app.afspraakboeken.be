@@ -26,6 +26,12 @@ return [
     'setup_key' => '',
     'secure_cookies' => true,
     // Configure once on Hostinger; never put mailbox passwords in Git.
+    // See docs/GOOGLE-CALENDAR.md. Secrets stay only in the Hostinger config.
+    'google_calendar' => [
+        'enabled' => false,
+        'client_id' => '',
+        'client_secret' => '',
+    ],
     'mail' => [
         'enabled' => false,
         'host' => 'smtp.hostinger.com',
