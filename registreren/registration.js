@@ -1,4 +1,4 @@
-import {SECTORS} from '../sectors.js?v=0.11.0';
+import {SECTORS} from '../sectors.js?v=0.11.2';
 const form=document.getElementById('registration-form'),status=document.getElementById('registration-status'),button=form.querySelector('button[type=submit]');
 const intro=document.getElementById('registration-intro'),heading=document.getElementById('form-heading');
 const trial=new URLSearchParams(location.search).get('mode')==='trial';
@@ -14,7 +14,7 @@ if(trial){
  document.getElementById('details-title').textContent='14 dagen. Helemaal voor jouw zaak.';
  document.getElementById('form-description').textContent='Maak je eigen omgeving aan. Je proefperiode begint na e-mailbevestiging. Geen creditcard nodig.';
  form.querySelectorAll('[data-info-field]').forEach(el=>el.hidden=true);
- button.innerHTML='Start mijn gratis proefperiode <span aria-hidden="true">→</span>';
+ button.innerHTML='Start mijn gratis proefperiode ';
  document.getElementById('registration-reassurance').textContent='Daarna €15 per gebruiker/maand, jaarlijks €180 excl. btw. Je wordt nooit automatisch betalend klant.';
  document.querySelector('.registration-footer').textContent='01 Gegevens · 02 E-mail bevestigen · 03 Meteen aan de slag';
  showForm();

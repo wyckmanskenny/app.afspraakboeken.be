@@ -126,3 +126,7 @@ dialog.booking-theme[open]::backdrop{animation:slot-backdrop-in 180ms ease-out}
 .kanban-col:nth-child(1){border-top:4px solid var(--platform-teal)}
 .kanban-col:nth-child(2){border-top:4px solid var(--platform-jasmine)}
 .kanban-col:nth-child(3){border-top:4px solid var(--platform-coral)}
+
+/* Calendar navigation remains explicit without arrow icons. */
+.calendar-nav{width:auto;min-width:0;min-height:36px;padding:8px;font-size:11px;white-space:nowrap}
+.month-head{gap:8px;flex-wrap:wrap}.month-head>strong{flex:1;text-align:center}

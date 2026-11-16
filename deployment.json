@@ -1,5 +1,5 @@
 {
-  "version": "0.11.0",
+  "version": "0.11.2",
   "site": "app.afspraakboeken.be",
-  "release": "company-leads-and-booking-modes"
+  "release": "remove-arrow-icons"
 }

@@ -53,7 +53,8 @@ test('Choosing a service goes straight to the calendar; confirmation waits for t
  const ui=await setup(route=>route==='public/catalog'?result({tenant:{...company,branding:brand,features:company.settings.features,location:'Op afspraak'},services:[service]}):route==='public/slots'?result({date:day,times:['10:00']}):result({id:'e'.repeat(32),status:'confirmed',replayed:false},201),'https://app.afspraakboeken.be/?mode=book&tenant='+company.id);
  await until(()=>ui.document.querySelector('[data-book-action="service"]'));
  ui.document.querySelector('[data-book-action="service"]').click();await until(()=>ui.document.querySelector('.month-grid'));
- assert.ok(!ui.document.body.textContent.includes('Volgende'));
+ assert.equal(ui.document.querySelector('[data-book-action=next]'),null);
+ assert.equal(ui.document.querySelector('[data-book-action=month-next]').textContent,'Volgende');
  let dayButton=ui.document.querySelector(`[data-date="${day}"]`);
  if(!dayButton){ui.document.querySelector('[data-book-action="month-next"]').click();dayButton=ui.document.querySelector(`[data-date="${day}"]`);}
  dayButton.click();await until(()=>ui.document.querySelector('[data-book-action="time"]'));ui.document.querySelector('[data-book-action="time"]').click();
