@@ -73,3 +73,7 @@ test('Unavailable SMTP blocks automatic trials but leaves the information route 
  const ui=await setup(()=>response({ready:true,trial_available:false}),'?mode=trial');
  assert.equal(ui.document.querySelector('button[type=submit]').disabled,true);assert.equal(ui.document.getElementById('trial-fallback').hidden,false);await ui.window.happyDOM.close();
 });
+test('Partner registrations disclose attribution and pass the partner code to verified signup',async()=>{
+ const code='a'.repeat(24);const ui=await setup(route=>response(route==='public/partner'?{name:'Partner <img src=x>'}:route==='health'?{ready:true,trial_available:true}:{message:'Check email'}),'?mode=trial&partner='+code);
+ try{await tick();const form=ui.document.getElementById('registration-form');assert.ok(form.textContent.includes('Partner <img src=x>'));assert.equal(form.querySelector('img'),null);for(const [k,v] of Object.entries({name:'Owner',company:'Company',email:'owner@example.test',sector:form.elements.sector.options[1].value}))form.elements[k].value=v;form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await tick();assert.equal(ui.calls.find(c=>c.route==='trial/signup').data.partner,code);}finally{await ui.window.happyDOM.close();}
+});

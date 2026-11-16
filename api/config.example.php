@@ -17,6 +17,8 @@ return [
         'user' => 'HOSTINGER_DATABASE_USER',
         'password' => 'SET_ON_HOSTINGER_ONLY',
     ],
+    // Optional after the partner subdomain is online:
+    // 'partner_url' => 'https://partners.afspraakboeken.be',
     'app_url' => 'https://app.afspraakboeken.be',
     'contact_origins' => ['https://afspraakboeken.be', 'https://www.afspraakboeken.be'],
     // Two DIFFERENT random secrets, each at least 32 characters.

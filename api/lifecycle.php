@@ -38,6 +38,7 @@ function lifecycle_mail(string $title,string $text,string $label,string $url): a
 }
 function trial_signup(array $data): array {
     if(text($data,'website',200)!=='')return ['message'=>'Controleer je e-mail om verder te gaan.'];
+    partner_code($data['partner']??null);
     $email=email($data);$name=text($data,'name',120,true);$company=text($data,'company',120,true);$sector=text($data,'sector',80,true);
     if(mail_configuration()===null)fail(503,'De proefperiode kan tijdelijk niet automatisch starten. Vraag vrijblijvend informatie op; we helpen je persoonlijk verder.');
     limit_rate('trial-signup-ip',client_ip(),5,3600);limit_rate('trial-signup-email',$email,3,3600);
@@ -49,6 +50,7 @@ function trial_signup(array $data): array {
         $token=bin2hex(random_bytes(32));
         // A fresh unconfirmed request is deliberately replaceable by its mailbox owner.
         query('INSERT INTO ab_trial_signups(email,name,company,sector,token_hash,expires_at) VALUES (?,?,?,?,?,DATE_ADD(UTC_TIMESTAMP(),INTERVAL 24 HOUR)) ON DUPLICATE KEY UPDATE name=VALUES(name),company=VALUES(company),sector=VALUES(sector),token_hash=VALUES(token_hash),expires_at=VALUES(expires_at)',[$email,$name,$company,$sector,hash('sha256',$token)]);
+        partner_signup_referral($email,hash('sha256',$token),$data['partner']??null);
         $url=rtrim(configuration()['app_url'],'/').'/activate.html#trial='.$token;
         $content=lifecycle_mail('Nog één stap naar je gratis proefperiode',"Dag $name,\n\nBevestig je e-mailadres en kies een wachtwoord voor $company. Daarna beginnen je 14 gratis dagen. Je hebt geen creditcard nodig.\n\nNa de proefperiode kost het abonnement €15 per gebruiker per maand, jaarlijks gefactureerd (€180 exclusief btw per gebruiker per jaar). Je wordt nooit automatisch betalend klant.\n\nDeze persoonlijke link werkt één keer en vervalt na 24 uur.",'Bevestigen en wachtwoord kiezen',$url);
         if(deliver_mail($email,$name,$content)!=='sent')fail(503,'De bevestigingsmail kon niet worden verstuurd. Probeer later opnieuw of vraag vrijblijvend informatie op.');
@@ -71,6 +73,7 @@ function trial_accept(array $data,bool $accept): array {
         query('INSERT INTO ab_tenants(id,name,sector,contact_email,active,plan_type,monthly_cents,lifetime_cents,billing_json,settings_json) VALUES (?,?,?,?,1,\'annual\',1500,0,?,?)',[$id,$signup['company'],$signup['sector'],$signup['email'],encoded(['email'=>$signup['email']]),encoded(default_settings())]);
         query('INSERT INTO ab_users(id,tenant_id,email,name,role,password_hash) VALUES (?,?,?,?,\'admin\',?)',[$user,$id,$signup['email'],$signup['name'],$password]);
         query('INSERT INTO ab_trials(tenant_id,starts_at,ends_at) VALUES (?,UTC_TIMESTAMP(),DATE_ADD(UTC_TIMESTAMP(),INTERVAL 14 DAY))',[$id]);
+        partner_trial_attribution($signup,$id);
         query('DELETE FROM ab_trial_signups WHERE email=?',[$signup['email']]);audit($user,'trial.started',$id);
         return ['tenant_id'=>$id,'active'=>true,'trial'=>true];
     });

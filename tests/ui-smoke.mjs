@@ -11,7 +11,7 @@ const company={id:'a'.repeat(32),name:'Test company',email:'test@example.test',s
 const service={id:'b'.repeat(32),name:'Advice',category:'Consultation',description:'A clear description',duration:30,buffer:0,price:50,active:true,image:'',video:'',revision:1};
 const pause=()=>new Promise(resolve=>setTimeout(resolve,5));
 async function until(check){for(let i=0;i<80;i++){if(check())return;await pause();}assert.ok(check(),'Expected UI state did not appear');}
-async function setup(handler,url='https://app.afspraakboeken.be/'){
+async function setup(handler,url='https://app.afspraakboeken.be/',entry='portal.js'){
  const window=new Window({url});const document=window.document;document.body.innerHTML='<div id="app"></div><dialog id="modal"></dialog><div id="toast"></div>';
  window.scrollTo=()=>{};const dialog=document.getElementById('modal');dialog.showModal=()=>dialog.setAttribute('open','');dialog.close=()=>dialog.removeAttribute('open');
  const calls=[];
@@ -23,7 +23,7 @@ async function setup(handler,url='https://app.afspraakboeken.be/'){
   const mod=new vm.SourceTextModule(fs.readFileSync(file,'utf8'),{context,identifier:file,initializeImportMeta(meta){meta.url='https://app.afspraakboeken.be/'+path.relative(root,file);},importModuleDynamically:async(specifier,parent)=>{const child=await module(path.resolve(path.dirname(parent.identifier),specifier.split('?')[0]));if(child.status!=='evaluated')await child.evaluate();return child;}});
   cache.set(file,mod);await mod.link((specifier,parent)=>module(path.resolve(path.dirname(parent.identifier),specifier.split('?')[0])));return mod;
  }
- const mod=await module(path.join(root,'portal.js'));await mod.evaluate();
+ const mod=await module(path.join(root,entry));await mod.evaluate();
  return {window,document,calls,close:()=>window.happyDOM.close()};
 }
 const result=(body,status=200)=>({body,status});
@@ -212,4 +212,24 @@ test('Paid CRM saves a contact and a note, then adds a follow-up action inside t
  form=ui.document.querySelector('[data-crm-form="note"]');form.elements.content.value='Discussed quote';form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.document.querySelector('.crm-notes').textContent.includes('Discussed quote'));
  form=ui.document.querySelector('[data-crm-form="task"]');form.elements.title.value='Call back';form.elements.due_date.value='2026-11-20';form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.document.querySelector('.crm-task-list').textContent.includes('Call back'));assert.equal(ui.calls.filter(c=>c.route==='crm/note').length,1);assert.equal(ui.calls.filter(c=>c.route==='crm/task').length,1);
  }finally{await ui.close();}
+});
+test('Partner portal has its own login and creates customers without exposing account access',async()=>{
+ let signed=false,accounts=[];const partner={id:'1'.repeat(32),name:'Partner A',can_create:true,can_activate:false,referral_url:'https://app.afspraakboeken.be/registreren/?mode=trial&partner=abc'};
+ const ui=await setup((route,data)=>{
+  if(route==='partner/login'){signed=true;return result({csrf:'partner-csrf'});}
+  if(route==='partner/me')return signed?result({partner,name:'Representative',csrf:'partner-csrf',accounts,enquiries:[],commission:[]}):result({error:'Sign in'},401);
+  if(route==='partner/customer-create'){accounts=[{tenant_id:'2'.repeat(32),name:data.name,email:data.email,active:0,source:'manual',created_at:'2026-11-16 10:00:00',activation_requested_at:'2026-11-16 10:00:00'}];return result({tenant_id:accounts[0].tenant_id,mail:'sent'},201);}
+  throw Error(route);
+ },'https://app.afspraakboeken.be/partners/','partners/partners.js');
+ try{await until(()=>ui.document.querySelector('[data-form="login"]'));let f=ui.document.querySelector('[data-form="login"]');f.elements.email.value='partner@example.test';f.elements.password.value='Partner password phrase';f.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.document.querySelector('[data-partner="new"]'));assert.equal(ui.document.querySelector('[data-page="tenants"]'),null);ui.document.querySelector('[data-partner="new"]').click();f=ui.document.querySelector('[data-form="customer"]');f.elements.name.value='New business';f.elements.admin_name.value='Owner';f.elements.email.value='customer@example.test';f.elements.confirmed.checked=true;f.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.document.body.textContent.includes('Afspraakboeken.be beoordeelt je aanvraag'));assert.equal(ui.calls.filter(c=>c.route==='partner/customer-create').length,1);assert.equal(ui.document.querySelector('[data-partner="activation"]'),null);assert.equal(ui.calls.some(c=>c.route==='workspace'),false);}finally{await ui.close();}
+});
+test('Superadmin can create a partner with activation disabled by default',async()=>{
+ let partner=null;const ui=await setup((route,data)=>{
+  if(route==='me')return result({csrf:'admin',user:{role:'superadmin',name:'Agency',email:'owner@example.test'}});
+  if(route==='tenants')return result({tenants:[],notifications:{new_requests:0}});
+  if(route==='partners/list')return result({partners:[]});
+  if(route==='partners/save'){partner={...data,id:'3'.repeat(32),revision:1,referral_url:'https://app.afspraakboeken.be/registreren/?partner=code'};return result({id:partner.id});}
+  if(route==='partners/detail')return result({partner,members:[],accounts:[]});
+  throw Error(route);
+ });try{await until(()=>ui.document.querySelector('[data-page="partners"]'));ui.document.querySelector('[data-page="partners"]').click();await until(()=>ui.document.querySelector('[data-pa="new"]'));ui.document.querySelector('[data-pa="new"]').click();const f=ui.document.querySelector('[data-pa-form="partner"]');assert.equal(f.elements.can_activate.checked,false);f.elements.name.value='Partner';f.elements.email.value='partner@example.test';f.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.document.querySelector('[data-pa-form="member"]'));assert.equal(ui.calls.find(c=>c.route==='partners/save').data.can_activate,false);assert.equal(ui.calls.some(c=>c.route==='partners/member'),false);}finally{await ui.close();}
 });

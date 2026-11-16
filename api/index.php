@@ -6,6 +6,7 @@ require __DIR__.'/mailer.php';
 require __DIR__.'/lifecycle.php';
 require __DIR__.'/leads.php';
 require __DIR__.'/crm.php';
+require __DIR__.'/partners.php';
 
 try {
     $route=trim($_GET['route']??'health','/');$method=$_SERVER['REQUEST_METHOD'];
@@ -13,9 +14,9 @@ try {
         header('Access-Control-Allow-Origin: *');
         try{
             configuration();$ready=(int)query("SELECT COUNT(*) FROM ab_users WHERE role='superadmin'")->fetchColumn()>0;
-            if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();}
-            respond(['ready'=>$ready,'version'=>'0.13.0','trial_available'=>$ready&&mail_configuration()!==null]);
-        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.13.0'],503);}
+            if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();}
+            respond(['ready'=>$ready,'version'=>'0.14.0','trial_available'=>$ready&&mail_configuration()!==null]);
+        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.14.0'],503);}
     }
     configuration();
     if($method==='OPTIONS'&&$route==='contact'){origin_guard(true);respond([],204);}
@@ -35,7 +36,9 @@ try {
         }finally{query('SELECT RELEASE_LOCK(?)',[$lock]);}
         respond(['message'=>'Je superadminaccount is aangemaakt. Je kunt nu aanmelden.'],201);
     }
-    ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();
+    ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();
+    if($route==='public/partner'&&$method==='GET'){$p=partner_code($_GET['code']??'');if(!$p)fail(404,'Partner niet gevonden.');respond(['name'=>$p['name']]);}
+    if(str_starts_with($route,'partner/'))partner_routes($route,$method);
     if($route==='trial/signup'&&$method==='POST')respond(trial_signup(body()),201);
     if(in_array($route,['trial/check','trial/accept'],true)&&$method==='POST')respond(trial_accept(body(),$route==='trial/accept'));
     if($route==='login'&&$method==='POST'){
@@ -71,10 +74,12 @@ try {
     if($route==='contact'&&$method==='POST'){
         $data=body();
         if(text($data,'website',200)!=='')respond(['message'=>'Bedankt voor je aanvraag.'],202);
+        $referral=partner_code($data['partner']??null);
         $name=text($data,'name',120,true);$company=text($data,'company',120,true);$email=email($data);
         $phone=text($data,'phone',40);$sector=text($data,'sector',80);$message=text($data,'message',3000,true);
         limit_rate('contact-ip',client_ip(),6,3600);limit_rate('contact-email',$email,3,3600);
         $id=uid();query('INSERT INTO ab_contacts(id,name,company,email,phone,sector,message) VALUES (?,?,?,?,?,?,?)',[$id,$name,$company,$email,$phone,$sector,$message]);
+        if($referral)query('INSERT INTO ab_partner_enquiries VALUES (?,?)',[$id,$referral['id']]);
         send_lead_notice($id,['name'=>$name,'company'=>$company,'email'=>$email,'phone'=>$phone,'sector'=>$sector,'message'=>$message]);
         respond(['message'=>'Bedankt! Je aanvraag is ontvangen. Afspraak maken zal contact met je opnemen.'],201);
     }
@@ -121,6 +126,11 @@ try {
     }
     $user=identity(true,$route!=='notifications');
     if($method==='POST')csrf($user);
+    if($route==='partners/list'&&$method==='GET')respond(partner_admin_list($user));
+    if($route==='partners/detail'&&$method==='GET')respond(partner_admin_detail($user,$_GET));
+    if($route==='partners/save'&&$method==='POST')respond(partner_admin_save($user,body()));
+    if($route==='partners/member'&&$method==='POST')respond(partner_admin_member($user,body()));
+    if($route==='partners/approve'&&$method==='POST'){superadmin($user);$data=body();if(!flag($data,'confirmed'))fail(422,'Bevestig dat de formule met de klant is afgesproken.');respond(transaction(fn()=>partner_activate_account($user,identifier($data['partner']??''),identifier($data['tenant']??''),true)));}
     if($route==='crm/contacts'&&$method==='GET')respond(crm_list($user,$_GET));
     if($route==='crm/contact'&&$method==='GET')respond(crm_detail($user,$_GET));
     if($route==='crm/save'&&$method==='POST')respond(crm_save($user,body()));

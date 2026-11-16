@@ -1,7 +1,8 @@
-import {SECTORS} from '../sectors.js?v=0.13.0';
+import {SECTORS} from '../sectors.js?v=0.14.0';
 const form=document.getElementById('registration-form'),status=document.getElementById('registration-status'),button=form.querySelector('button[type=submit]');
 const intro=document.getElementById('registration-intro'),heading=document.getElementById('form-heading');
 const trial=new URLSearchParams(location.search).get('mode')==='trial';
+const referral=new URLSearchParams(location.search).get('partner')||'';
 const endpoint=new URL('../api/index.php',import.meta.url);
 for(const name of SECTORS){const option=document.createElement('option');option.value=name;option.textContent=name;form.elements.sector.append(option);}
 function showForm(){intro.hidden=true;heading.hidden=false;form.hidden=false;document.getElementById('details-title').focus();}
@@ -20,7 +21,9 @@ if(trial){
  showForm();
 }
 async function availability(){
- try{const url=new URL(endpoint);url.searchParams.set('route','health');const response=await fetch(url,{credentials:'omit',cache:'no-store'});const result=await response.json();if(!response.ok||!result.ready)throw new Error();
+ try{
+  if(referral){const u=new URL(endpoint);u.searchParams.set('route','public/partner');u.searchParams.set('code',referral);const r=await fetch(u,{credentials:'omit',cache:'no-store'});const p=await r.json();if(!r.ok){status.textContent=p.error||'Deze partnerlink is niet beschikbaar.';return;}const note=document.createElement('p');note.className='field-help';note.textContent='Aangebracht door '+p.name+'. Deze partner kan de status van je aanvraag en account volgen, maar ziet geen afspraken of CRM-gegevens.';form.prepend(note);const fallback=document.getElementById('trial-fallback');for(const a of fallback?.querySelectorAll('a')||[]){const link=new URL(a.href,location.href);link.searchParams.set('partner',referral);a.href=link.href;}}
+const url=new URL(endpoint);url.searchParams.set('route','health');const response=await fetch(url,{credentials:'omit',cache:'no-store'});const result=await response.json();if(!response.ok||!result.ready)throw new Error();
   if(trial&&!result.trial_available){status.textContent='Gratis starten wordt nog klaargezet. Laat intussen je vraag achter; we helpen je persoonlijk verder.';document.getElementById('trial-fallback').hidden=false;return;}
   button.disabled=false;status.textContent='';
  }catch{status.textContent='Het formulier is tijdelijk niet beschikbaar. Vernieuw de pagina om het opnieuw te proberen.';status.classList.add('error');}
@@ -29,6 +32,7 @@ form.addEventListener('submit',async event=>{
  event.preventDefault();if(button.disabled||!form.reportValidity())return;
  button.disabled=true;status.textContent='Een ogenblik…';status.classList.remove('error');
  const data=Object.fromEntries(new FormData(form));
+ if(referral)data.partner=referral;
  data.message='Informatieaanvraag via de registratiepagina.'+(data.message.trim()?'\n\n'+data.message.trim():'');
  try{
   const url=new URL(endpoint);url.searchParams.set('route',trial?'trial/signup':'contact');
