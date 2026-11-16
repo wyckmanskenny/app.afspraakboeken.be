@@ -1,4 +1,4 @@
-import {esc,request,fieldError,submit,toast} from './ui.js?v=0.15.1';
+import {esc,request,fieldError,submit,toast} from './ui.js?v=0.16.0';
 export function mountGoogleCalendar(root,tenant,onError){
  const api=(route,data)=>request(route,data===undefined?undefined:{tenant:tenant.id,...data},{tenant:tenant.id});
  const when=s=>s?new Date(s.replace(' ','T')+'Z').toLocaleString('nl-BE',{timeZone:'Europe/Brussels'}):'Nog niet uitgevoerd';

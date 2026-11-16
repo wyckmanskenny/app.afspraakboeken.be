@@ -8,6 +8,7 @@ require __DIR__.'/leads.php';
 require __DIR__.'/crm.php';
 require __DIR__.'/partners.php';
 require __DIR__.'/calendar.php';
+require __DIR__.'/media.php';
 
 try {
     $route=trim($_GET['route']??'health','/');$method=$_SERVER['REQUEST_METHOD'];
@@ -15,9 +16,9 @@ try {
         header('Access-Control-Allow-Origin: *');
         try{
             configuration();$ready=(int)query("SELECT COUNT(*) FROM ab_users WHERE role='superadmin'")->fetchColumn()>0;
-            if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();}
-            respond(['ready'=>$ready,'version'=>'0.15.1','trial_available'=>$ready&&mail_configuration()!==null]);
-        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.15.1'],503);}
+            if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();}
+            respond(['ready'=>$ready,'version'=>'0.16.0','trial_available'=>$ready&&mail_configuration()!==null]);
+        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.16.0'],503);}
     }
     configuration();
     if($method==='OPTIONS'&&$route==='contact'){origin_guard(true);respond([],204);}
@@ -37,7 +38,8 @@ try {
         }finally{query('SELECT RELEASE_LOCK(?)',[$lock]);}
         respond(['message'=>'Je superadminaccount is aangemaakt. Je kunt nu aanmelden.'],201);
     }
-    ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();
+    ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();
+    if($route==='media/image'&&$method==='GET')serve_service_image($_GET);
     if($route==='calendar/callback'&&$method==='GET'){$destination=google_callback(identity(),$_GET);header('Location: '.$destination,true,303);exit;}
     if($route==='public/partner'&&$method==='GET'){$p=partner_code($_GET['code']??'');if(!$p)fail(404,'Partner niet gevonden.');respond(['name'=>$p['name']]);}
     if(str_starts_with($route,'partner/'))partner_routes($route,$method);
@@ -129,6 +131,7 @@ try {
     }
     $user=identity(true,$route!=='notifications');
     if($method==='POST')csrf($user);
+    if($route==='service/image'&&$method==='POST')respond(upload_service_image($user),201);
     if($route==='calendar/status'&&$method==='GET')respond(google_status($user,$_GET));
     if($route==='calendar/connect'&&$method==='POST')respond(google_state($user,body()));
     if($route==='calendar/list'&&$method==='GET'){$t=tenant_access($user,$_GET['tenant']??$user['tenant_id']);respond(['calendars'=>google_list($t['id'])]);}
@@ -246,8 +249,8 @@ try {
     }
     if($route==='service/save'&&$method==='POST'){
         $data=body();$result=transaction(function()use($user,$data){
-            $t=tenant_access($user,$data['tenant']??null,true);$values=service_input($data);$id=$data['id']??'';
-            if($id){identifier($id);$previous=row('SELECT * FROM ab_services WHERE id=? AND tenant_id=?',[$id,$t['id']]);if(!$previous)fail(404,'Dienst niet gevonden.');if(integer($data,'revision',1,2147483647)!==(int)$previous['revision'])fail(409,'Deze dienst is elders gewijzigd. Vernieuw de pagina.');
+            $t=tenant_access($user,$data['tenant']??null,true);$values=service_input($data);$id=$data['id']??'';validate_owned_service_image($t['id'],$values[7]);
+            if($id){identifier($id);$previous=row('SELECT * FROM ab_services WHERE id=? AND tenant_id=?',[$id,$t['id']]);if(!$previous)fail(404,'Dienst niet gevonden.');if(integer($data,'revision',1,2147483647)!==(int)$previous['revision'])fail(409,'Deze dienst is elders gewijzigd. Vernieuw de pagina.');if(!array_key_exists('category',$data))$values[1]=$previous['category'];
                 query('UPDATE ab_services SET name=?,category=?,description=?,duration=?,buffer=?,price_cents=?,active=?,image_url=?,video_url=?,revision=revision+1 WHERE id=? AND tenant_id=?',array_merge($values,[$id,$t['id']]));
             }else{$id=uid();query('INSERT INTO ab_services(id,tenant_id,name,category,description,duration,buffer,price_cents,active,image_url,video_url) VALUES (?,?,?,?,?,?,?,?,?,?,?)',array_merge([$id,$t['id']],$values));}
             audit($user['id'],'service.saved',$id);return ['id'=>$id];

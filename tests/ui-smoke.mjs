@@ -15,7 +15,7 @@ async function setup(handler,url='https://app.afspraakboeken.be/',entry='portal.
  const window=new Window({url});const document=window.document;document.body.innerHTML='<div id="app"></div><dialog id="modal"></dialog><div id="toast"></div>';
  window.scrollTo=()=>{};const dialog=document.getElementById('modal');dialog.showModal=()=>dialog.setAttribute('open','');dialog.close=()=>dialog.removeAttribute('open');
  const calls=[];
- const fetch=async(url,options={})=>{const parsed=new URL(url);const route=parsed.searchParams.get('route');const data=options.body?JSON.parse(options.body):undefined;calls.push({route,data,options,params:parsed.searchParams});const result=await handler(route,data,parsed.searchParams);return {ok:result.status<400,status:result.status,json:async()=>result.body};};
+ const fetch=async(url,options={})=>{const parsed=new URL(url);const route=parsed.searchParams.get('route');const data=options.body instanceof window.FormData?Object.fromEntries(options.body):options.body?JSON.parse(options.body):undefined;calls.push({route,data,options,params:parsed.searchParams});const result=await handler(route,data,parsed.searchParams);return {ok:result.status<400,status:result.status,json:async()=>result.body};};
  const context=vm.createContext({window,document,location:window.location,history:window.history,navigator:window.navigator,URL,URLSearchParams,Intl,Date,crypto:globalThis.crypto,FormData:window.FormData,Event:window.Event,Blob:window.Blob,setTimeout,clearTimeout,fetch,console});
  const cache=new Map();
  async function module(file){
@@ -255,5 +255,36 @@ test('An existing booking can be moved after available times load, with stale-ch
  const date=form.querySelector('[name=date]');date.value=day;date.dispatchEvent(new ui.window.Event('change',{bubbles:true}));
  await until(()=>!form.querySelector('[type=submit]').disabled);form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.calls.some(c=>c.route==='booking/reschedule'));
  const payload=ui.calls.find(c=>c.route==='booking/reschedule').data;assert.equal(payload.expected_time,'09:00');assert.equal(payload.time,'11:30');assert.equal(payload.tenant,company.id);
+ }finally{await ui.close();}
+});
+
+test('Services preview image uploads, preserve uploads across save retries and omit category',async()=>{
+ let uploads=0,saves=0;
+ const uploaded='https://app.afspraakboeken.be/api/index.php?route=media/image&id='+'f'.repeat(32);
+ const ui=await setup((route,data)=>{
+  if(route==='me')return result({csrf:'test',user:{id:'c'.repeat(32),role:'admin',name:'Owner',tenant_id:company.id}});
+  if(route==='service/image'){uploads++;assert.equal(data.tenant,company.id);assert.equal(data.image.name,'photo.png');return result({url:uploaded},201);}
+  if(route==='service/save'){saves++;return saves===1?result({error:'Try again'},503):result({id:service.id});}
+  return result({tenant:company,services:[service],bookings:[]});
+ });
+ try{
+  await until(()=>ui.document.querySelector('[data-page=services]'));ui.document.querySelector('[data-page=services]').click();ui.document.querySelector('[data-action=service-edit]').click();
+  const form=ui.document.getElementById('service-form');assert.equal(form.querySelector('[name=category]'),null);assert.equal(form.querySelector('[name=video]').type,'url');
+  const file=form.querySelector('[type=file]');assert.ok(file.accept.includes('image/webp'));
+  Object.defineProperty(file,'files',{value:[new ui.window.File(['test image'],'photo.png',{type:'image/png'})],configurable:true});file.dispatchEvent(new ui.window.Event('change',{bubbles:true}));
+  await until(()=>form.querySelector('[data-image-status]').textContent.includes('photo.png'));assert.ok(form.querySelector('[data-image-preview] img'));
+  form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>form.querySelector('.form-error').textContent==='Try again');
+  assert.equal(uploads,1);form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>saves===2);
+  assert.equal(uploads,1);const payload=ui.calls.find(c=>c.route==='service/save').data;assert.equal(payload.image,uploaded);assert.equal('category' in payload,false);assert.equal('imageFile' in payload,false);
+ }finally{await ui.close();}
+});
+test('Oversized service pictures are rejected locally and removing a picture restores the fallback',async()=>{
+ const ui=await setup(route=>route==='me'?result({csrf:'test',user:{id:'c'.repeat(32),role:'admin',name:'Owner',tenant_id:company.id}}):result({tenant:company,services:[{...service,image:'https://example.test/photo.jpg'}],bookings:[]}));
+ try{
+  await until(()=>ui.document.querySelector('[data-page=services]'));ui.document.querySelector('[data-page=services]').click();ui.document.querySelector('[data-action=service-edit]').click();
+  const form=ui.document.getElementById('service-form'),file=form.querySelector('[type=file]');
+  Object.defineProperty(file,'files',{value:[new ui.window.File([new Uint8Array(5*1024*1024+1)],'large.jpg',{type:'image/jpeg'})],configurable:true});file.dispatchEvent(new ui.window.Event('change',{bubbles:true}));
+  assert.ok(form.querySelector('[data-image-status]').textContent.includes('maximaal 5 MB'));assert.equal(form.elements.image.value,'https://example.test/photo.jpg');assert.equal(ui.calls.some(c=>c.route==='service/image'),false);
+  form.querySelector('[data-image-remove]').click();assert.equal(form.elements.image.value,'');assert.equal(form.querySelector('[data-image-preview] img'),null);assert.ok(form.querySelector('.service-placeholder'));
  }finally{await ui.close();}
 });

@@ -12,7 +12,8 @@ export function setCsrf(value){csrf=value||'';}
 export async function request(route,data,params={}){
  const url=new URL('./api/index.php',import.meta.url);url.searchParams.set('route',route);
  for(const [key,value] of Object.entries(params))url.searchParams.set(key,value);
- const response=await fetch(url,{method:data===undefined?'GET':'POST',credentials:'same-origin',headers:data===undefined?{}:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:data===undefined?undefined:JSON.stringify(data),cache:'no-store'});
+ const multipart=data instanceof FormData;
+ const response=await fetch(url,{method:data===undefined?'GET':'POST',credentials:'same-origin',headers:data===undefined?{}:{...(multipart?{}:{'Content-Type':'application/json'}),'X-CSRF-Token':csrf},body:data===undefined?undefined:multipart?data:JSON.stringify(data),cache:'no-store'});
  let result;try{result=await response.json();}catch{const error=new Error('De server kan de aanvraag nog niet verwerken. Probeer later opnieuw.');error.status=response.status||503;throw error;}
  if(!response.ok){const error=new Error(result.error||'De aanvraag is niet gelukt.');error.status=response.status;throw error;}
  return result;
@@ -29,3 +30,8 @@ export async function submit(form,operation){
  finally{buttons.forEach(b=>b.disabled=false);}
 }
 export function safeUrl(value){try{const url=new URL(value);return url.protocol==='https:'?url.href:'';}catch{return '';}}
+export function serviceVisual(source,kind='service-cover'){
+ const url=safeUrl(source);
+ return `<span class="service-visual ${kind}" aria-hidden="true"><span class="service-placeholder">${icon('layers')}</span>${url?`<img data-service-image src="${esc(url)}" alt="" loading="lazy">`:''}</span>`;
+}
+document.addEventListener('error',event=>{if(event.target?.matches?.('img[data-service-image]'))event.target.hidden=true;},true);

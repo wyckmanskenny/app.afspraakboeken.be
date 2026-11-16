@@ -82,7 +82,8 @@ function service_input(array $data): array {
     $result[]=(int)round((float)$price*100);$result[]=(int)flag($data,'active',true);
     foreach (['image','video'] as $key) {
         $url=text($data,$key,1000);
-        if ($url && (!filter_var($url,FILTER_VALIDATE_URL)||parse_url($url,PHP_URL_SCHEME)!=='https'||parse_url($url,PHP_URL_USER)!==null)) fail(422,'Gebruik een geldige https-link voor media.');
+        $ownUpload=$key==='image'&&preg_match('~^'.preg_quote(rtrim(configuration()['app_url'],'/').'/api/index.php?route=media/image&id=','~').'[a-f0-9]{32}$~D',$url);
+        if ($url && (!filter_var($url,FILTER_VALIDATE_URL)||(!$ownUpload&&parse_url($url,PHP_URL_SCHEME)!=='https')||parse_url($url,PHP_URL_USER)!==null)) fail(422,'Gebruik een geldige https-link voor media.');
         $result[]=$url;
     }
     return $result;

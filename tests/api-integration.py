@@ -102,6 +102,39 @@ a.call('service/save', {**service,'tenant':ta['tenant_id'],'id':sb,'revision':1}
 a.call('service/save', {**service,'tenant':ta['tenant_id'],'image':'javascript:alert(1)'}, expected=422)
 ok('Service writes enforce tenant ownership and validate media URLs')
 
+# Real multipart transport; fake MIME and executable uploads never become media.
+import base64
+image_bytes=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aH4kAAAAASUVORK5CYII=')
+def upload(client,tenant,content,expected=201,csrf=None):
+    boundary='test'+secrets.token_hex(12)
+    payload=(f'--{boundary}\r\nContent-Disposition: form-data; name="tenant"\r\n\r\n{tenant}\r\n--{boundary}\r\nContent-Disposition: form-data; name="image"; filename="upload.png"\r\nContent-Type: image/png\r\n\r\n').encode()+content+f'\r\n--{boundary}--\r\n'.encode()
+    req=urllib.request.Request(BASE+'/api/index.php?route=service/image',data=payload,headers={'Origin':BASE,'Content-Type':'multipart/form-data; boundary='+boundary,'X-CSRF-Token':client.csrf if csrf is None else csrf})
+    try:r=client.opener.open(req,timeout=20)
+    except urllib.error.HTTPError as e:r=e
+    body=json.loads(r.read());assert r.status==expected,(expected,r.status,body)
+    return body
+upload(anonymous,ta['tenant_id'],image_bytes,401)
+upload(a,ta['tenant_id'],image_bytes,403,csrf='invalid')
+upload(a,tb['tenant_id'],image_bytes,404)
+upload(a,ta['tenant_id'],b'<?php echo "unsafe"; ?>',422)
+upload(a,ta['tenant_id'],b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',422)
+upload(a,ta['tenant_id'],b'x'*(5*1024*1024+1),413)
+image_url=upload(a,ta['tenant_id'],image_bytes)['url']
+assert upload(a,ta['tenant_id'],image_bytes)['url']==image_url
+with anonymous.opener.open(image_url) as r:
+    assert r.headers['Content-Type']=='image/png' and r.headers['X-Content-Type-Options']=='nosniff'
+    assert r.read()==image_bytes
+b.call('service/save',{**service,'tenant':tb['tenant_id'],'id':sb,'revision':1,'image':image_url},expected=422)
+without_category={k:v for k,v in service.items() if k!='category'}
+a.call('service/save',{**without_category,'tenant':ta['tenant_id'],'id':sa,'revision':1,'image':image_url})
+saved=next(s for s in a.call('workspace')['services'] if s['id']==sa)
+assert saved['category']=='Test' and saved['image']==image_url
+# Removing the image falls back without losing the old category.
+a.call('service/save',{**without_category,'tenant':ta['tenant_id'],'id':sa,'revision':saved['revision'],'image':''})
+assert next(s for s in a.call('workspace')['services'] if s['id']==sa)['image']==''
+ok('Image uploads enforce authentication, CSRF, tenant ownership, file type and 5 MB; bytes persist, deduplicate and categories survive')
+
+
 tomorrow=(datetime.date.today()+datetime.timedelta(days=3)).isoformat()
 catalog=anonymous.call('public/catalog', tenant=ta['tenant_id'])
 assert 'email' not in catalog['tenant'] and 'subscription' not in catalog['tenant']
