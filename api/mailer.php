@@ -26,22 +26,22 @@ function welcome_content(string $name, string $company, string $url, bool $activ
     $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     $access = $active
         ? 'Na het instellen van je wachtwoord kun je meteen aanmelden.'
-        : 'Je kunt nu alvast je wachtwoord kiezen. Wycked activeert de toegang tot je omgeving zodra alles klaarstaat.';
-    $text = "Dag $name,\n\nWelkom bij Afspraakboeken.be! Wycked heeft een account voor $company aangemaakt.\n\nKies zelf je wachtwoord via deze persoonlijke link:\n$url\n\nDeze link is 24 uur geldig en werkt één keer. Deel hem niet met anderen.\n\n$access\n\nIn jouw omgeving beheer je je diensten, beschikbare momenten en afspraken.\n\nTot binnenkort,\nAfspraakboeken.be · door Wycked";
+        : 'Je kunt nu alvast je wachtwoord kiezen. Wycked Media ® activeert de toegang tot je omgeving zodra alles klaarstaat.';
+    $text = "Dag $name,\n\nWelkom bij Afspraakboeken.be! Wycked Media ® heeft een account voor $company aangemaakt.\n\nKies zelf je wachtwoord via deze persoonlijke link:\n$url\n\nDeze link is 24 uur geldig en werkt één keer. Deel hem niet met anderen.\n\n$access\n\nIn jouw omgeving beheer je je diensten, beschikbare momenten en afspraken.\n\nTot binnenkort,\nAfspraakboeken.be · Wycked Media ®";
     $html = '<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>' .
         '<body style="margin:0;padding:32px 16px;background:#edf3f2;font-family:Arial,sans-serif;color:#264653">' .
         '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">' .
         '<table role="presentation" width="560" cellspacing="0" cellpadding="0" style="width:100%;max-width:560px;background:#fff;border-radius:18px">' .
-        '<tr><td style="padding:36px 32px"><div style="font-size:20px;font-weight:700">afspraakboeken.be</div><div style="font-size:12px;color:#607580;margin-top:5px">door Wycked</div>' .
+        '<tr><td style="padding:36px 32px"><div style="font-size:20px;font-weight:700">afspraakboeken.be</div><div style="font-size:12px;color:#607580;margin-top:5px">Wycked Media ®</div>' .
         '<h1 style="font-size:30px;line-height:1.2;margin:34px 0 22px">Fijn dat je erbij bent.</h1>' .
         '<p style="font-size:15px;line-height:1.7">Dag ' . $escape($name) . ',</p>' .
-        '<p style="font-size:15px;line-height:1.7">Welkom bij Afspraakboeken.be! Wycked heeft een account voor <strong>' . $escape($company) . '</strong> aangemaakt.</p>' .
+        '<p style="font-size:15px;line-height:1.7">Welkom bij Afspraakboeken.be! Wycked Media ® heeft een account voor <strong>' . $escape($company) . '</strong> aangemaakt.</p>' .
         '<p style="font-size:15px;line-height:1.7">Kies je wachtwoord en maak van afspraken boeken iets eenvoudigs.</p>' .
         '<table role="presentation" cellspacing="0" cellpadding="0" style="margin:26px 0"><tr><td bgcolor="#264653" style="border-radius:9px"><a href="' . $escape($url) . '" style="display:inline-block;padding:16px 24px;color:#fff;font-size:15px;font-weight:700;text-decoration:none">Mijn wachtwoord kiezen</a></td></tr></table>' .
         '<p style="font-size:13px;line-height:1.7;color:#607580">Deze persoonlijke link is 24 uur geldig en werkt één keer. Deel hem niet met anderen.</p>' .
         '<p style="padding:16px;background:#e8f3ef;border-radius:10px;font-size:14px;line-height:1.7">' . $escape($access) . '</p>' .
         '<p style="font-size:15px;line-height:1.7">In jouw omgeving beheer je je diensten, beschikbare momenten en afspraken.</p>' .
-        '<p style="font-size:15px;line-height:1.7;margin-top:26px">Tot binnenkort,<br><strong>Afspraakboeken.be · door Wycked</strong></p>' .
+        '<p style="font-size:15px;line-height:1.7;margin-top:26px">Tot binnenkort,<br><strong>Afspraakboeken.be · Wycked Media ®</strong></p>' .
         '<p style="font-size:11px;line-height:1.6;color:#607580;border-top:1px solid #e3eaea;padding-top:20px">Werkt de knop niet? Kopieer deze link naar je browser:<br><a href="' . $escape($url) . '" style="color:#264653;word-break:break-all">' . $escape($url) . '</a></p>' .
         '</td></tr></table></td></tr></table></body></html>';
     return ['subject' => 'Welkom bij Afspraakboeken.be', 'text' => $text, 'html' => $html];
@@ -69,7 +69,8 @@ function deliver_mail(string $recipient, string $name, array $content, string $r
             $mail->Timeout = 10;
             $mail->getSMTPInstance()->Timelimit = 15;
             $mail->CharSet = 'UTF-8';
-            $mail->setFrom($config['from_email'], $config['from_name'] ?? 'Afspraakboeken.be');
+            $fromName = preg_replace('/(?:door )?Wycked(?! Media)/i', 'Wycked Media ®', $config['from_name'] ?? 'Afspraakboeken.be');
+            $mail->setFrom($config['from_email'], $fromName);
             $replyTo = $replyTo ?: ($config['reply_to'] ?? '');
             if ($replyTo !== '') $mail->addReplyTo($replyTo);
             $mail->addAddress($recipient, $name);
@@ -99,7 +100,7 @@ function send_lead_notice(string $id, array $lead): string {
     $inbox = rtrim(configuration()['app_url'], '/') . '/?view=contacts';
     $fields = ['Bedrijf'=>$lead['company'],'Contactpersoon'=>$lead['name'],'E-mail'=>$lead['email'],'Telefoon'=>$lead['phone'],'Sector'=>$lead['sector'],'Bericht'=>$lead['message']];
     $text = "Er is een nieuwe aanvraag voor Afspraakboeken.be.\n\n";
-    $html = '<!doctype html><html lang="nl"><meta charset="utf-8"><body style="background:#edf3f2;padding:28px;font-family:Arial,sans-serif;color:#264653"><div style="background:white;max-width:580px;margin:auto;padding:32px;border-radius:16px"><strong>afspraakboeken.be · door Wycked</strong><h1 style="font-size:26px">Een nieuwe kans voor Afspraakboeken.be.</h1>';
+    $html = '<!doctype html><html lang="nl"><meta charset="utf-8"><body style="background:#edf3f2;padding:28px;font-family:Arial,sans-serif;color:#264653"><div style="background:white;max-width:580px;margin:auto;padding:32px;border-radius:16px"><strong>afspraakboeken.be · Wycked Media ®</strong><h1 style="font-size:26px">Een nieuwe kans voor Afspraakboeken.be.</h1>';
     foreach ($fields as $label => $value) {
         $text .= $label . ': ' . ($value ?: '—') . "\n";
         $html .= '<p style="font-size:14px;line-height:1.6"><strong>' . $escape($label) . '</strong><br>' . nl2br($escape($value ?: '—')) . '</p>';

@@ -55,8 +55,10 @@ function clean_settings(array $data, array $previous, bool $agency): array {
 }
 function tenant_view(array $tenant, bool $internal = false): array {
     $out=['id'=>$tenant['id'],'name'=>$tenant['name'],'sector'=>$tenant['sector'],'email'=>$tenant['contact_email'],'active'=>(bool)$tenant['active'],'revision'=>(int)$tenant['revision'],'settings'=>decoded($tenant['settings_json'])];
+    $out['trial']=trial_view($tenant['id']);
     if ($internal) {
         $out['subscription']=['type'=>$tenant['plan_type'],'monthlyAmount'=>(int)$tenant['monthly_cents']/100,'lifetimeAmount'=>(int)$tenant['lifetime_cents']/100,'billing'=>decoded($tenant['billing_json'])];
+        $out['reminders']=query('SELECT days_before,status,sent_at FROM ab_trial_mail WHERE tenant_id=? ORDER BY days_before DESC',[$tenant['id']])->fetchAll();
         $out['admin']=row('SELECT name,email FROM ab_users WHERE tenant_id=? AND role=\'admin\' ORDER BY created_at,id LIMIT 1',[$tenant['id']]);
         $delivery=row('SELECT action,created_at FROM ab_audit WHERE target_id=? AND action IN (\'tenant.welcome_sent\',\'tenant.welcome_failed\',\'tenant.welcome_not_configured\') ORDER BY id DESC LIMIT 1',[$tenant['id']]);
         $out['welcome']=$delivery?['status'=>substr($delivery['action'],strlen('tenant.welcome_')),'at'=>$delivery['created_at']]:null;

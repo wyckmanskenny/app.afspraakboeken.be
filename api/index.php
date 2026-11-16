@@ -3,6 +3,7 @@ declare(strict_types=1);
 require __DIR__.'/bootstrap.php';
 require __DIR__.'/domain.php';
 require __DIR__.'/mailer.php';
+require __DIR__.'/lifecycle.php';
 
 try {
     $route=trim($_GET['route']??'health','/');$method=$_SERVER['REQUEST_METHOD'];
@@ -10,8 +11,9 @@ try {
         header('Access-Control-Allow-Origin: *');
         try{
             configuration();$ready=(int)query("SELECT COUNT(*) FROM ab_users WHERE role='superadmin'")->fetchColumn()>0;
-            respond(['ready'=>$ready,'version'=>'0.9.3']);
-        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.9.3'],503);}
+            if($ready)ensure_lifecycle_schema();
+            respond(['ready'=>$ready,'version'=>'0.10.0','trial_available'=>$ready&&mail_configuration()!==null]);
+        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.10.0'],503);}
     }
     configuration();
     if($method==='OPTIONS'&&$route==='contact'){origin_guard(true);respond([],204);}
@@ -31,6 +33,9 @@ try {
         }finally{query('SELECT RELEASE_LOCK(?)',[$lock]);}
         respond(['message'=>'Je superadminaccount is aangemaakt. Je kunt nu aanmelden.'],201);
     }
+    ensure_lifecycle_schema();
+    if($route==='trial/signup'&&$method==='POST')respond(trial_signup(body()),201);
+    if(in_array($route,['trial/check','trial/accept'],true)&&$method==='POST')respond(trial_accept(body(),$route==='trial/accept'));
     if($route==='login'&&$method==='POST'){
         $data=body();$email=email($data);$pw=$data['password']??'';
         if(!is_string($pw)||strlen($pw)>72)fail(401,'E-mailadres of wachtwoord klopt niet.');
@@ -39,7 +44,7 @@ try {
         // The fallback hash makes unknown accounts follow a password verification path too.
         $fallback='$2y$12$7RrV1Mg01rl3JTTz6OZMzuCdmQ4P7kPk9cdLRLfkV2eI9EJ0t/RXG';
         if(!password_verify($pw,$user['password_hash']??$fallback)||!$user||!$user['active'])fail(401,'E-mailadres of wachtwoord klopt niet.');
-        if($user['role']==='admin'&&!$user['tenant_active'])fail(403,'Je bedrijfsaccount is nog niet actief. Neem contact op met Wycked.');
+        if($user['role']==='admin'&&!$user['tenant_active'])fail(403,'Je bedrijfsaccount is nog niet actief. Neem contact op met Wycked Media ®.');
         if(!in_array($user['role'],['admin','superadmin'],true))fail(403,'Geen toegang.');
         $token=bin2hex(random_bytes(32));$csrf=bin2hex(random_bytes(32));
         query('INSERT INTO ab_sessions(token_hash,user_id,csrf,created_at,last_seen,expires_at) VALUES (?,?,?,UTC_TIMESTAMP(),UTC_TIMESTAMP(),DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR))',[hash('sha256',$token),$user['id'],$csrf]);
@@ -52,7 +57,7 @@ try {
         limit_rate('invite-ip',client_ip(),30,900);
         $result=transaction(function()use($route,$data,$token){
             $invite=row('SELECT i.*,u.email,u.name,u.tenant_id,u.active,t.name AS company,t.active AS tenant_active FROM ab_invites i JOIN ab_users u ON u.id=i.user_id JOIN ab_tenants t ON t.id=u.tenant_id WHERE i.token_hash=? FOR UPDATE',[hash('sha256',$token)]);
-            if(!$invite||$invite['used_at']||$invite['expires_at']<=gmdate('Y-m-d H:i:s')||!$invite['active'])fail(400,'Deze activatielink is ongeldig of verlopen. Vraag een nieuwe link aan Wycked.');
+            if(!$invite||$invite['used_at']||$invite['expires_at']<=gmdate('Y-m-d H:i:s')||!$invite['active'])fail(400,'Deze activatielink is ongeldig of verlopen. Vraag een nieuwe link aan Wycked Media ®.');
             if($route==='invite/check')return ['name'=>$invite['name'],'email'=>$invite['email'],'company'=>$invite['company']];
             query('UPDATE ab_users SET password_hash=? WHERE id=?',[hash_password(password($data)),$invite['user_id']]);
             query('UPDATE ab_invites SET used_at=UTC_TIMESTAMP() WHERE user_id=? AND used_at IS NULL',[$invite['user_id']]);
@@ -69,11 +74,11 @@ try {
         limit_rate('contact-ip',client_ip(),6,3600);limit_rate('contact-email',$email,3,3600);
         $id=uid();query('INSERT INTO ab_contacts(id,name,company,email,phone,sector,message) VALUES (?,?,?,?,?,?,?)',[$id,$name,$company,$email,$phone,$sector,$message]);
         send_lead_notice($id,['name'=>$name,'company'=>$company,'email'=>$email,'phone'=>$phone,'sector'=>$sector,'message'=>$message]);
-        respond(['message'=>'Bedankt! Je aanvraag is ontvangen. Wycked neemt contact met je op.'],201);
+        respond(['message'=>'Bedankt! Je aanvraag is ontvangen. Afspraak maken zal contact met je opnemen.'],201);
     }
     if($route==='public/catalog'&&$method==='GET'){
         $id=identifier($_GET['tenant']??'');$t=row('SELECT * FROM ab_tenants WHERE id=? AND active=1',[$id]);
-        if(!$t)fail(404,'Deze boekingspagina is momenteel niet beschikbaar.');
+        if(!$t||trial_expired($id))fail(404,'Deze boekingspagina is momenteel niet beschikbaar.');
         $settings=decoded($t['settings_json']);$services=array_map('service_view',query('SELECT * FROM ab_services WHERE tenant_id=? AND active=1 ORDER BY name',[$id])->fetchAll());
         foreach($services as &$s){unset($s['revision']);if(!$settings['features']['prices'])unset($s['price']);if(!$settings['features']['media']){$s['image']='';$s['video']='';}}unset($s);
         respond(['tenant'=>['id'=>$t['id'],'name'=>$t['name'],'location'=>$settings['location'],'branding'=>$settings['branding'],'features'=>$settings['features']],'services'=>$services]);
@@ -81,7 +86,7 @@ try {
     if($route==='public/slots'&&$method==='GET'){
         $id=identifier($_GET['tenant']??'');$service=identifier($_GET['service']??'');$date=text($_GET,'date',10,true);
         $t=row('SELECT * FROM ab_tenants WHERE id=? AND active=1',[$id]);$s=row('SELECT * FROM ab_services WHERE id=? AND tenant_id=? AND active=1',[$service,$id]);
-        if(!$t||!$s)fail(404,'Deze dienst is niet beschikbaar.');
+        if(!$t||!$s||trial_expired($id))fail(404,'Deze dienst is niet beschikbaar.');
         respond(['date'=>$date,'times'=>slots($t,$s,$date)]);
     }
     if($route==='public/book'&&$method==='POST'){
@@ -95,7 +100,7 @@ try {
         limit_rate('booking-ip',client_ip(),20,3600);
         $result=transaction(function()use($tenantId,$serviceId,$key,$fingerprint,$name,$email,$phone,$address,$notes,$date,$time,$consent,$source,$campaign){
             // Every booking and availability edit takes this tenant lock. Two requests cannot reserve the same resource concurrently.
-            $t=row('SELECT * FROM ab_tenants WHERE id=? AND active=1 FOR UPDATE',[$tenantId]);if(!$t)fail(404,'Deze boekingspagina is niet beschikbaar.');
+            $t=row('SELECT * FROM ab_tenants WHERE id=? AND active=1 FOR UPDATE',[$tenantId]);if(!$t||trial_expired($tenantId))fail(404,'Deze boekingspagina is niet beschikbaar.');
             $existing=row('SELECT id,request_hash,status FROM ab_bookings WHERE tenant_id=? AND request_key=?',[$tenantId,$key]);
             if($existing){if(!hash_equals($existing['request_hash'],$fingerprint))fail(409,'Gebruik een nieuwe boekingsaanvraag.');return ['id'=>$existing['id'],'status'=>$existing['status'],'replayed'=>true];}
             $s=row('SELECT * FROM ab_services WHERE id=? AND tenant_id=? AND active=1',[$serviceId,$tenantId]);if(!$s)fail(404,'Deze dienst is niet beschikbaar.');
@@ -108,8 +113,11 @@ try {
             return ['id'=>$id,'status'=>'confirmed','replayed'=>false];
         });respond($result,201);
     }
-    $user=identity();
+    $user=identity(true,$route!=='notifications');
     if($method==='POST')csrf($user);
+    if($route==='notifications'&&$method==='GET'){superadmin($user);respond(notifications());}
+    if($route==='trial/upgrade'&&$method==='POST')respond(request_subscription($user,body()));
+    if($route==='trial/convert'&&$method==='POST')respond(convert_trial($user,body()));
     if($route==='me'&&$method==='GET')respond(['user'=>user_view($user),'csrf'=>$user['csrf']]);
     if($route==='logout'&&$method==='POST'){query('DELETE FROM ab_sessions WHERE token_hash=?',[$user['token_hash']]);session_cookie('',time()-3600);respond(['ok'=>true]);}
     if($route==='password'&&$method==='POST'){
@@ -120,11 +128,11 @@ try {
         session_cookie('',time()-3600);respond(['message'=>'Wachtwoord gewijzigd. Meld je opnieuw aan.']);
     }
     if($route==='tenants'&&$method==='GET'){
-        superadmin($user);$list=query('SELECT * FROM ab_tenants ORDER BY created_at DESC')->fetchAll();respond(['tenants'=>array_map(fn($t)=>tenant_view($t,true),$list),'mail'=>mail_status()]);
+        superadmin($user);$list=query('SELECT * FROM ab_tenants ORDER BY created_at DESC')->fetchAll();respond(['tenants'=>array_map(fn($t)=>tenant_view($t,true),$list),'mail'=>mail_status(),'notifications'=>notifications(),'cron'=>row("SELECT created_at FROM ab_audit WHERE action='trial.cron_run' ORDER BY id DESC LIMIT 1")]);
     }
     if($route==='tenants/create'&&$method==='POST'){
         superadmin($user);$data=body();$name=text($data,'name',120,true);$email=email($data);$adminName=text($data,'admin_name',120,true);$sector=text($data,'sector',80);
-        $plan=$data['plan_type']??'monthly';if(!in_array($plan,['monthly','lifetime'],true))fail(422,'Kies maandelijks of lifetime.');
+        $plan=$data['plan_type']??'monthly';if(!in_array($plan,['monthly','annual','lifetime'],true))fail(422,'Kies maandelijks of lifetime.');
         $monthly=integer($data,'monthly_cents',0,10000000,0);$lifetime=integer($data,'lifetime_cents',0,10000000,0);
         $settings=clean_settings($data['settings']??[],default_settings(),true);
         $result=transaction(function()use($user,$name,$email,$adminName,$sector,$plan,$monthly,$lifetime,$settings){
@@ -159,7 +167,7 @@ try {
         superadmin($user);$data=body();$result=transaction(function()use($user,$data){
             $t=tenant_access($user,$data['tenant']??null,true);
             if(integer($data,'revision',1,2147483647)!==(int)$t['revision'])fail(409,'Deze klant is elders gewijzigd. Vernieuw de pagina.');
-            $plan=$data['plan_type']??'';if(!in_array($plan,['monthly','lifetime'],true))fail(422,'Kies een abonnementstype.');
+            $plan=$data['plan_type']??'';if(!in_array($plan,['monthly','annual','lifetime'],true))fail(422,'Kies een abonnementstype.');
             $input=$data['billing']??[];if(!is_array($input))fail(422,'Controleer de facturatiegegevens.');
             $billing=decoded($t['billing_json']);foreach(['legalName'=>150,'email'=>190,'vatNumber'=>50,'address'=>250,'invoiceReference'=>100,'notes'=>1000] as $key=>$max)if(array_key_exists($key,$input))$billing[$key]=text($input,$key,$max);
             if(!empty($billing['email']))$billing['email']=email($billing);

@@ -10,6 +10,7 @@ import json
 import os
 import socketserver
 import ssl
+import sys
 import subprocess
 import threading
 import urllib.error
@@ -67,6 +68,9 @@ class SMTPHandler(socketserver.BaseRequestHandler):
 class Server(socketserver.ThreadingTCPServer):
     allow_reuse_address=True
     daemon_threads=True
+    def handle_error(self, request, client_address):
+        if not isinstance(sys.exception(), (BrokenPipeError, ConnectionResetError, ssl.SSLError)):
+            super().handle_error(request, client_address)
 
 class Client:
     def __init__(self):
@@ -103,7 +107,7 @@ try:
     message=messages[-1]; html=message.get_body(('html',)).get_content(); plain=message.get_body(('plain',)).get_content()
     assert created['invite_url'] in html and created['invite_url'] in plain
     assert '<script>' not in html and '&lt;script&gt;' in html
-    assert 'Wycked activeert' in plain and str(message['From']).endswith('<mailer@example.test>')
+    assert 'Wycked Media ® activeert' in plain and str(message['From']).endswith('<mailer@example.test>')
     print('PASS real TLS SMTP, correct account recipient, HTML escaping and text alternative',flush=True)
 
     tenant=owner.call('workspace',tenant=created['tenant_id'])['tenant']
@@ -132,6 +136,9 @@ try:
     assert saved['notification']=='contact.mail_sent'
     print('PASS registration lead saved in inbox and SMTP notification sent only to Kenny',flush=True)
 
+    from trial_integration import run as run_trial_tests
+    run_trial_tests(Client,owner,anonymous,messages,envelopes,config,state)
+
     state['reject']=True
     failed=create(owner,'smtp-failure@example.test');assert failed['mail']['status']=='failed'
     assert anonymous.call('invite/check',{'token':failed['invite_url'].split('#')[1]})['company']=='Mail Company'
@@ -148,6 +155,8 @@ try:
     owner.call('tenant/welcome',{'tenant':inactive['tenant_id']},expected=422)
     anonymous.call('invite/check',{'token':inactive['invite_url'].split('#')[1]})
     assert len(messages)==count and owner.call('tenants')['mail']['configured'] is False
+    anonymous.call('trial/signup',{'name':'No Mail','company':'No Mail','email':'no-mail@example.test','sector':'Test'},expected=503)
+    assert anonymous.call('health')['trial_available'] is False
     print('PASS unconfigured email is explicit and does not revoke existing invitation on resend',flush=True)
 finally:
     config.write_bytes(original)

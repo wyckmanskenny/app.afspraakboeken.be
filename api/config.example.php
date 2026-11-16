@@ -32,7 +32,7 @@ return [
         'username' => '',
         'password' => '',
         'from_email' => '',
-        'from_name' => 'Afspraakboeken.be · door Wycked',
+        'from_name' => 'Afspraakboeken.be · Wycked Media ®',
         'reply_to' => '',
     ],
 ];

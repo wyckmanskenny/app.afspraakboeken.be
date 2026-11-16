@@ -17,3 +17,6 @@ Run `mail-integration.py` afterwards against the same disposable database/server
 `tests/registration-smoke.mjs` checks readiness, optional fields, duplicate-click protection, successful lead submission, escaped confirmation text and failure recovery. `tests/ui-smoke.mjs` also checks account/billing address separation and inbox deep links. Run these using `node --experimental-vm-modules --test`, with Happy DOM available or `HAPPY_DOM_MODULE` pointing to its module entry file.
 
 Syntax: run `php -l` on every `api/*.php` file and `node --check` on each JavaScript module. The optional frontend DOM tests use Happy DOM in an isolated VM; no dependency is required on the hosting server.
+
+
+The SMTP suite also invokes `trial_integration.py`. Supply `TEST_RUNTIME_USR` pointing to the local test runtime containing `bin/php8.4`, `bin/mariadb`, and `lib/php/20240924`; `LD_LIBRARY_PATH` must match that runtime if it uses bundled libraries. The suite changes dates only in `ab_backend_test`, tests all four reminder milestones, SMTP retry spacing, expired-trial restrictions, conversion and notification counts. It verifies that passive badge polling does not refresh the idle session timestamp. No production database or mail server is used.

@@ -86,3 +86,18 @@ test('Email inbox links open Aanvragen immediately after authentication',async()
  const ui=await setup(route=>route==='me'?result({csrf:'csrf-test',user:{id:'d'.repeat(32),role:'superadmin',name:'Agency',email:'agency@example.test'}}):route==='tenants'?result({tenants:[],mail:{configured:false}}):result({contacts:[]}),'https://app.afspraakboeken.be/?view=contacts');
  await until(()=>ui.document.body.textContent.includes('Nieuwe kansen'));assert.ok(ui.calls.some(c=>c.route==='contacts'));await ui.close();
 });
+test('The agency badge counts new requests and updates after a status change',async()=>{
+ let count=2;
+ const ui=await setup(route=>route==='me'?result({csrf:'csrf-test',user:{id:'d'.repeat(32),role:'superadmin',name:'Agency',email:'agency@example.test'}}):route==='tenants'?result({tenants:[],mail:{configured:false},notifications:{new_requests:count}}):route==='contact/update'?(count=1,result({ok:true})):result({contacts:[{id:'f'.repeat(32),company:'Lead',name:'Lead Owner',email:'lead@example.test',sector:'Test',status:'new',message:'A question',created_at:'2026-11-16 09:00:00'}]}));
+ await until(()=>ui.document.querySelector('.nav-count'));assert.equal(ui.document.querySelector('.nav-count').textContent,'2');
+ assert.ok(ui.document.querySelector('[data-page=trials]'));
+ ui.document.querySelector('[data-page=contacts]').click();await until(()=>ui.document.querySelector('[data-contact-status]'));
+ const select=ui.document.querySelector('[data-contact-status]');select.value='contacted';select.dispatchEvent(new ui.window.Event('change',{bubbles:true}));
+ await until(()=>ui.document.querySelector('.nav-count').textContent==='1');await ui.close();
+});
+test('Expired trial users retain a route to activation and see the red trial banner',async()=>{
+ const tenant={...company,trial:{starts_at:'2026-11-01T09:00:00Z',ends_at:'2026-11-15T09:00:00Z',days_left:0,expired:true,converted_at:null,upgrade_requested_at:null}};
+ const ui=await setup(route=>route==='me'?result({csrf:'csrf-test',user:{id:'c'.repeat(32),role:'admin',name:'Trial Owner',email:'test@example.test',tenant_id:company.id}}):result({tenant,services:[],bookings:[],booking_limit:2000}));
+ await until(()=>ui.document.querySelector('.trial-banner'));assert.ok(ui.document.body.textContent.includes('Je gegevens blijven bewaard'));
+ ui.document.querySelector('[data-page=subscription]').click();assert.ok(ui.document.getElementById('subscription-form'));await ui.close();
+});

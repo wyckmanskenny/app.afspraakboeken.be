@@ -1,47 +1,56 @@
-import {esc,money,dateLabel,icon,logo,button,pill,fieldError,request,setCsrf,toast,modal,closeModal,submit,safeUrl} from './ui.js';
-import {renderLogin} from './auth.js?v=0.9.3';
-import {SECTORS} from './sectors.js';
-import {TODAY,addDays,BRAND_FONTS,brandVariables} from './core.js';
+import {trialBanner,expiredTrialPage,subscriptionPage,trialsPage,conversionForm} from './trial-ui.js?v=0.10.0';
+import {esc,money,dateLabel,icon,logo,button,pill,fieldError,request,setCsrf,toast,modal,closeModal,submit,safeUrl} from './ui.js?v=0.10.0';
+import {renderLogin} from './auth.js?v=0.10.0';
+import {SECTORS} from './sectors.js?v=0.10.0';
+import {TODAY,addDays,BRAND_FONTS,brandVariables} from './core.js?v=0.10.0';
 
 
 
-let user=null,tenants=[],workspace=null,contacts=[],mailSetup=null,page='overview',calendarDay=TODAY();
+let user=null,tenants=[],workspace=null,contacts=[],mailSetup=null,pendingRequests=0,cronStatus=null,page='overview',calendarDay=TODAY();
 const app=document.getElementById('app');
 const agency=()=>user?.role==='superadmin';
 const t=()=>workspace?.tenant;
-const labels={overview:'Overzicht',calendar:'Agenda',bookings:'Afspraken',services:'Diensten',crm:'Klanten opvolgen',widget:'Boekingswidget',settings:'Beschikbaarheid',branding:'Huisstijl',emails:'E-mailtekst',tenants:'Klanten beheren',contacts:'Aanvragen',security:'Mijn account'};
+const labels={overview:'Overzicht',calendar:'Agenda',bookings:'Afspraken',services:'Diensten',crm:'Klanten opvolgen',widget:'Boekingswidget',settings:'Beschikbaarheid',branding:'Huisstijl',emails:'E-mailtekst',tenants:'Klanten beheren',contacts:'Aanvragen',trials:'Gratis trial gestart',subscription:'Mijn abonnement',security:'Mijn account'};
 const header=(title,description,action='')=>`<div class="heading"><div><h1>${title}</h1><p class="sub">${description}</p></div>${action}</div>`;
 const formButtons=(label='Opslaan')=>`${fieldError()}<div class="save-row">${button('Annuleren','close')}<button type="submit" class="btn primary">${label}</button></div>`;
 const bookingStatus=b=>pill(b.status==='cancelled'?'Geannuleerd':'Bevestigd',b.status==='cancelled'?'grey':'');
 const activeBookings=()=>workspace.bookings.filter(b=>b.status==='confirmed');
 
+async function loadAgency(){const data=await request('tenants');tenants=data.tenants;mailSetup=data.mail;pendingRequests=data.notifications?.new_requests||0;cronStatus=data.cron;}
+async function pollNotifications(){
+ if(!agency()||document.hidden)return;
+ try{const data=await request('notifications');pendingRequests=data.new_requests;const badge=document.querySelector('.nav-count');if(badge){badge.textContent=String(pendingRequests);badge.hidden=!pendingRequests;badge.setAttribute('aria-label',pendingRequests+' nieuwe aanvragen');}}
+ catch(error){if(error.status===401)expired();}
+}
+window.setInterval(pollNotifications,60000);
+window.addEventListener('focus',pollNotifications);
 async function signedIn(account){
  user=account;workspace=null;tenants=[];contacts=[];
- if(agency()){({tenants,mail:mailSetup}=await request('tenants'));page=new URLSearchParams(location.search).get('view')==='contacts'?'contacts':'tenants';if(page==='contacts')({contacts}=await request('contacts'));}
- else{workspace=await request('workspace');page='overview';}
+ if(agency()){await loadAgency();page=['contacts','trials'].includes(new URLSearchParams(location.search).get('view'))?new URLSearchParams(location.search).get('view'):'tenants';if(page==='contacts')({contacts}=await request('contacts'));}
+ else{workspace=await request('workspace');page=new URLSearchParams(location.search).get('view')==='subscription'?'subscription':'overview';}
  render();
 }
 async function refresh(){
- if(agency()){({tenants,mail:mailSetup}=await request('tenants'));if(page==='contacts')({contacts}=await request('contacts'));}
+ if(agency()){await loadAgency();if(page==='contacts')({contacts}=await request('contacts'));}
  if(workspace)workspace=await request('workspace',undefined,{tenant:t().id});
  render();
 }
 async function navigate(next){
- if(['tenants','contacts'].includes(next)&&!agency())return;
+ if(['tenants','contacts','trials'].includes(next)&&!agency())return;
  if(next==='contacts')({contacts}=await request('contacts'));
- if(!workspace&&!['tenants','contacts','security'].includes(next))return;
+ if(!workspace&&!['tenants','contacts','trials','security'].includes(next))return;
  page=next;render();window.scrollTo(0,0);
 }
 function render(){
  document.title=`${labels[page]||'Overzicht'} · Afspraakboeken.be`;
- const nav=workspace?[['overview','grid'],['calendar','calendar'],['bookings','calendar'],['services','layers'],...(t().settings.features.crm?[['crm','kanban']]:[]),['widget','code'],['settings','clock'],['branding','settings'],['emails','mail']]:[];
- const link=([key,symbol])=>`<button class="nav-link ${page===key?'active':''}" data-page="${key}" ${page===key?'aria-current="page"':''}>${icon(symbol)}${labels[key]}</button>`;
- app.innerHTML=`<div class="app-shell"><aside class="sidebar">${logo()}<div class="workspace-label"><strong>${workspace?esc(t().name):'Wycked · agency'}</strong><small>${agency()?'Superadminomgeving':'Jouw bedrijfsomgeving'}</small></div>${agency()?`<div class="nav-label">Agency</div>${link(['tenants','users'])}${link(['contacts','mail'])}`:''}${nav.length?`<div class="nav-label">Jouw werkplek</div>${nav.map(link).join('')}`:''}<div class="sidebar-bottom"><strong>${esc(user.name)}</strong><small>${esc(user.email)}</small>${link(['security','lock'])}<button class="nav-link" data-action="logout">${icon('logout')}Afmelden</button></div></aside><main class="app-main"><header class="topbar"><div class="flex"><button class="icon-btn mobile-toggle" data-action="menu" aria-label="Menu openen">${icon('menu')}</button><span class="breadcrumb">Jouw werkplek / <strong>${labels[page]}</strong></span></div><div class="flex">${agency()&&tenants.length?`<select id="workspace-select" class="workspace-select" aria-label="Klantomgeving openen"><option value="">Kies een klantomgeving</option>${tenants.map(x=>`<option value="${x.id}" ${workspace&&x.id===t().id?'selected':''}>${esc(x.name)}</option>`).join('')}</select>`:''}${agency()?pill('Superadmin','orange'):pill('Beheerder')}</div></header><div class="content">${renderPage()}</div></main></div>`;
+ const nav=workspace?[['overview','grid'],['calendar','calendar'],['bookings','calendar'],['services','layers'],...(t().settings.features.crm?[['crm','kanban']]:[]),['widget','code'],['settings','clock'],['branding','settings'],['emails','mail'],...(t().trial?[['subscription','clock']]:[])]:[];
+ const link=([key,symbol])=>`<button class="nav-link ${page===key?'active':''}" data-page="${key}" ${page===key?'aria-current="page"':''}>${icon(symbol)}${labels[key]}${key==='contacts'?`<span class="nav-count" aria-label="${pendingRequests} nieuwe aanvragen" ${pendingRequests?'':'hidden'}>${pendingRequests}</span>`:''}</button>`;
+ app.innerHTML=`<div class="app-shell"><aside class="sidebar">${logo()}<div class="workspace-label"><strong>${workspace?esc(t().name):'Wycked Media ® · agency'}</strong><small>${agency()?'Superadminomgeving':'Jouw bedrijfsomgeving'}</small></div>${agency()?`<div class="nav-label">Agency</div>${link(['tenants','users'])}${link(['contacts','mail'])}${link(['trials','clock'])}`:''}${nav.length?`<div class="nav-label">Jouw werkplek</div>${nav.map(link).join('')}`:''}<div class="sidebar-bottom"><strong>${esc(user.name)}</strong><small>${esc(user.email)}</small>${link(['security','lock'])}<button class="nav-link" data-action="logout">${icon('logout')}Afmelden</button></div></aside><main class="app-main"><header class="topbar"><div class="flex"><button class="icon-btn mobile-toggle" data-action="menu" aria-label="Menu openen">${icon('menu')}</button><span class="breadcrumb">Jouw werkplek / <strong>${labels[page]}</strong></span></div><div class="flex">${agency()&&tenants.length?`<select id="workspace-select" class="workspace-select" aria-label="Klantomgeving openen"><option value="">Kies een klantomgeving</option>${tenants.map(x=>`<option value="${x.id}" ${workspace&&x.id===t().id?'selected':''}>${esc(x.name)}</option>`).join('')}</select>`:''}${agency()?pill('Superadmin','orange'):pill('Beheerder')}</div></header>${workspace&&!agency()?trialBanner(t()):''}<div class="content">${renderPage()}</div></main></div>`;
 }
-function renderPage(){return ({tenants:tenantsPage,contacts:contactsPage,overview:overviewPage,services:servicesPage,bookings:bookingsPage,calendar:calendarPage,crm:crmPage,settings:settingsPage,branding:brandingPage,widget:widgetPage,emails:emailsPage,security:securityPage}[page]||overviewPage)();}
+function renderPage(){if(t()?.trial?.expired&&!agency()&&!['subscription','security'].includes(page))return expiredTrialPage();return ({tenants:tenantsPage,contacts:contactsPage,trials:()=>trialsPage(tenants,mailSetup,cronStatus),subscription:()=>subscriptionPage(t()),overview:overviewPage,services:servicesPage,bookings:bookingsPage,calendar:calendarPage,crm:crmPage,settings:settingsPage,branding:brandingPage,widget:widgetPage,emails:emailsPage,security:securityPage}[page]||overviewPage)();}
 function tenantsPage(){
  const monthly=tenants.filter(x=>x.active&&x.subscription.type==='monthly'),lifetime=tenants.filter(x=>x.active&&x.subscription.type==='lifetime');
- return `${header('Jouw klanten. Eén overzicht.','Maak accounts aan, kies hun mogelijkheden en activeer ze wanneer jij klaar bent.',button(icon('plus')+' Klant toevoegen','tenant-new','primary'))}<div class="stats"><div class="stat"><span>Bedrijfsaccounts</span><strong>${tenants.length}</strong><small>Alles centraal beheerd</small></div><div class="stat"><span>Maandelijks actief</span><strong>${monthly.length}</strong><small>${money(monthly.reduce((n,x)=>n+x.subscription.monthlyAmount,0))} afgesproken · geen betalingen</small></div><div class="stat"><span>Lifetime actief</span><strong>${lifetime.length}</strong><small>Zolang de klant bij jouw agency blijft</small></div></div>${tenants.length?`<div class="grid-3">${tenants.map(x=>`<article class="panel tenant-card"><div class="flex between"><div class="avatar">${esc(x.name.slice(0,2).toUpperCase())}</div>${pill(x.active?'Actief':'Nog niet actief',x.active?'':'grey')}</div><div><h2>${esc(x.name)}</h2><small>${esc(x.sector)} · ${esc(x.email)}</small></div><div>${pill(x.subscription.type==='lifetime'?'Lifetime':'Maandelijks','orange')} <strong>${money(x.subscription.type==='lifetime'?x.subscription.lifetimeAmount:x.subscription.monthlyAmount)}</strong><p class="field-help">Facturatie via jouw eigen administratie.</p></div><div class="card-actions">${button('Open omgeving','tenant-open','small primary',`data-id="${x.id}"`)}${button('Administratie','tenant-admin','small',`data-id="${x.id}"`)}${button('Activatielink','tenant-invite','small',`data-id="${x.id}"`)}</div></article>`).join('')}</div>`:`<section class="panel empty">${icon('users')}<h2>Een goede start, voor elke klant.</h2><p>Voeg je eerste bedrijf toe. De klant krijgt een eigen omgeving en een persoonlijke activatielink.</p>${button('Eerste klant toevoegen','tenant-new','primary')}</section>`}`;
+ return `${header('Jouw klanten. Eén overzicht.','Maak accounts aan, kies hun mogelijkheden en activeer ze wanneer jij klaar bent.',button(icon('plus')+' Klant toevoegen','tenant-new','primary'))}<div class="stats"><div class="stat"><span>Bedrijfsaccounts</span><strong>${tenants.length}</strong><small>Alles centraal beheerd</small></div><div class="stat"><span>Maandelijks actief</span><strong>${monthly.length}</strong><small>${money(monthly.reduce((n,x)=>n+x.subscription.monthlyAmount,0))} afgesproken · geen betalingen</small></div><div class="stat"><span>Lifetime actief</span><strong>${lifetime.length}</strong><small>Zolang de klant bij jouw agency blijft</small></div></div>${tenants.length?`<div class="grid-3">${tenants.map(x=>`<article class="panel tenant-card"><div class="flex between"><div class="avatar">${esc(x.name.slice(0,2).toUpperCase())}</div>${pill(x.active?'Actief':'Nog niet actief',x.active?'':'grey')}</div><div><h2>${esc(x.name)}</h2><small>${esc(x.sector)} · ${esc(x.email)}</small></div><div>${pill(x.trial&&!x.trial.converted_at?'Gratis proefperiode':x.subscription.type==='lifetime'?'Lifetime':x.subscription.type==='annual'?'Jaarlijks':'Maandelijks','orange')} <strong>${x.trial&&!x.trial.converted_at?'€0 tijdens proefperiode':money(x.subscription.type==='lifetime'?x.subscription.lifetimeAmount:x.subscription.type==='annual'?x.subscription.monthlyAmount*12:x.subscription.monthlyAmount)}</strong><p class="field-help">Facturatie via jouw eigen administratie.</p></div><div class="card-actions">${button('Open omgeving','tenant-open','small primary',`data-id="${x.id}"`)}${button('Administratie','tenant-admin','small',`data-id="${x.id}"`)}${button('Activatielink','tenant-invite','small',`data-id="${x.id}"`)}</div></article>`).join('')}</div>`:`<section class="panel empty">${icon('users')}<h2>Een goede start, voor elke klant.</h2><p>Voeg je eerste bedrijf toe. De klant krijgt een eigen omgeving en een persoonlijke activatielink.</p>${button('Eerste klant toevoegen','tenant-new','primary')}</section>`}`;
 }
 function bookingTable(list){return `<div class="table-wrap"><table><thead><tr><th>Klant</th><th>Dienst</th><th>Moment</th><th>Status</th><th></th></tr></thead><tbody>${list.map(b=>`<tr><td><strong>${esc(b.name)}</strong><small>${esc(b.email)}</small></td><td>${esc(b.serviceName)}<small>${b.duration} min</small></td><td>${dateLabel(b.date)}<small>${esc(b.time)}</small></td><td>${bookingStatus(b)}</td><td>${button('Bekijken','booking-detail','small',`data-id="${b.id}"`)}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">Nog geen afspraken in dit overzicht.</td></tr>'}</tbody></table></div>`;}
 function overviewPage(){
@@ -82,7 +91,7 @@ function tenantAdmin(id){
  <p class="field-help">Dit is het aanmeldadres van de beheerder. De welkomstmail gaat naar dit adres.</p>
  <div class="notice"><div id="welcome-delivery" class="stack" role="status" aria-live="polite"><p>${mailSetup?.configured?last:'Automatische e-mails staan nog niet aan. Stel eerst de verzendmailbox in op Hostinger.'}</p></div><div class="section-gap">${button('Welkomstmail versturen','tenant-welcome','small',`data-id="${id}" ${mailSetup?.configured?'':'disabled'}`)}</div><p class="field-help">Een nieuwe welkomstmail vervangt eerdere activatielinks. Het bestaande wachtwoord blijft werken.</p></div>
  <label class="check"><input name="active" type="checkbox" ${x.active?'checked':''}>Bedrijfsaccount actief</label><p class="field-help">Inactief betekent: geen toegang tot de beheeromgeving en geen nieuwe boekingen. Bestaande gegevens blijven bewaard.</p>
- <label>Formule<select name="plan_type"><option value="monthly" ${s.type==='monthly'?'selected':''}>Maandelijks</option><option value="lifetime" ${s.type==='lifetime'?'selected':''}>Lifetime · zolang agencyklant</option></select></label>
+ <label>Formule<select name="plan_type"><option value="monthly" ${s.type==='monthly'?'selected':''}>Maandelijks</option><option value="annual" ${s.type==='annual'?'selected':''}>Jaarlijks · €15 per gebruiker/maand</option><option value="lifetime" ${s.type==='lifetime'?'selected':''}>Lifetime · zolang agencyklant</option></select></label>
  <div class="grid-2"><label>Maandbedrag (€)<input type="number" name="monthlyAmount" min="0" max="100000" step=".01" value="${s.monthlyAmount}" required></label><label>Eenmalig bedrag (€)<input type="number" name="lifetimeAmount" min="0" max="100000" step=".01" value="${s.lifetimeAmount}" required></label></div>
  <details open><summary>Facturatiegegevens en interne notities</summary><div class="fields section-gap"><label>E-mailadres voor facturen<input type="email" name="billingEmail" value="${esc(b.email||'')}" placeholder="${esc(admin.email)}" maxlength="190" autocomplete="off"></label><p class="field-help">Mag afwijken van het accountadres. Facturen verstuur je zelf via je eigen administratie.</p>${[['legalName','Bedrijfsnaam op factuur'],['vatNumber','Btw-nummer'],['address','Facturatieadres'],['invoiceReference','Factuurreferentie']].map(([key,label])=>`<label>${label}<input name="${key}" value="${esc(b[key]||'')}" maxlength="${key==='address'?250:key==='vatNumber'?50:key==='invoiceReference'?100:150}"></label>`).join('')}<label>Interne notitie<textarea name="notes" maxlength="1000">${esc(b.notes||'')}</textarea></label></div></details>${formButtons('Administratie opslaan')}</form>`);
 }
@@ -94,6 +103,7 @@ async function act(action,el){
  if(action==='close')return closeModal();
  if(action==='menu')return document.querySelector('.sidebar').classList.toggle('open');
  if(action==='logout'){await request('logout',{});user=null;workspace=null;setCsrf('');return renderLogin(signedIn);}
+ if(action==='trial-convert'&&agency())return modal('Jaarabonnement activeren',conversionForm(tenants.find(x=>x.id===el.dataset.id)));
  if(action==='tenant-new'&&agency())return tenantEditor();
  if(action==='tenant-admin'&&agency())return tenantAdmin(el.dataset.id);
  if(action==='tenant-welcome'&&agency()){
@@ -128,6 +138,8 @@ document.addEventListener('input',event=>{if(event.target.form?.id!=='brand-form
 document.addEventListener('submit',event=>{
  if(!user)return;const form=event.target;if(!form.id||form.id==='login-form')return;event.preventDefault();
  submit(form,async f=>{
+  if(form.id==='subscription-form'){await request('trial/upgrade',{...f,confirmed:!!f.confirmed});await refresh();return toast('Je activatieverzoek is ontvangen.');}
+  if(form.id==='trial-convert-form'){await request('trial/convert',{tenant:form.dataset.id,confirmed:!!f.confirmed});await refresh();closeModal();return toast('Jaarabonnement geactiveerd.');}
   if(form.id==='tenant-form'){
    const amount=Math.round(Number(f.amount)*100),r=await request('tenants/create',{name:f.name,admin_name:f.admin_name,email:f.email,sector:f.sector,plan_type:f.plan_type,monthly_cents:f.plan_type==='monthly'?amount:0,lifetime_cents:f.plan_type==='lifetime'?amount:0,settings:{branding:{primary:f.primary,secondary:f.secondary,background:f.background,font:f.font}}});
    await refresh();inviteDialog(r.invite_url,r.mail);return;
@@ -144,7 +156,7 @@ document.addEventListener('submit',event=>{
  });
 });
 async function start(){
- if(new URLSearchParams(location.search).get('mode')==='book'){const {startBooking}=await import('./booking.js');return startBooking();}
+ if(new URLSearchParams(location.search).get('mode')==='book'){const {startBooking}=await import('./booking.js?v=0.10.0');return startBooking();}
  try{const session=await request('me');setCsrf(session.csrf);await signedIn(session.user);}
  catch(error){renderLogin(signedIn,error.status===401?'':'Je omgeving wordt klaargezet of is tijdelijk niet bereikbaar. Aanmelden werkt zodra de verbinding actief is.');}
 }

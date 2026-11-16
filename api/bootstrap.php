@@ -118,12 +118,12 @@ function cookie_name(): string { return configuration()['secure_cookies'] ? '__H
 function session_cookie(string $token, int $expiry): void {
     setcookie(cookie_name(), $token, ['expires' => $expiry, 'path' => '/', 'secure' => configuration()['secure_cookies'], 'httponly' => true, 'samesite' => 'Lax']);
 }
-function identity(bool $required = true): ?array {
+function identity(bool $required = true, bool $touch = true): ?array {
     $token = $_COOKIE[cookie_name()] ?? '';
     $user = null;
     if (preg_match('/^[a-f0-9]{64}$/D', $token)) {
         $user = row('SELECT u.id,u.tenant_id,u.email,u.name,u.role,u.active,s.csrf,s.token_hash FROM ab_sessions s JOIN ab_users u ON u.id=s.user_id LEFT JOIN ab_tenants t ON t.id=u.tenant_id WHERE s.token_hash=? AND s.expires_at>UTC_TIMESTAMP() AND s.last_seen>DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 MINUTE) AND u.active=1 AND (u.role=\'superadmin\' OR (u.role=\'admin\' AND t.active=1))', [hash('sha256', $token)]);
-        if ($user) query('UPDATE ab_sessions SET last_seen=UTC_TIMESTAMP() WHERE token_hash=?', [$user['token_hash']]);
+        if ($user && $touch) query('UPDATE ab_sessions SET last_seen=UTC_TIMESTAMP() WHERE token_hash=?', [$user['token_hash']]);
     }
     if (!$user && $required) { session_cookie('', time()-3600); fail(401, 'Meld je aan om verder te gaan.'); }
     return $user;
@@ -135,11 +135,12 @@ function superadmin(array $user): void { if ($user['role'] !== 'superadmin') fai
 function user_view(array $user): array {
     return ['id'=>$user['id'], 'name'=>$user['name'], 'email'=>$user['email'], 'role'=>$user['role'], 'tenant_id'=>$user['tenant_id']];
 }
-function tenant_access(array $user, mixed $id, bool $lock = false): array {
+function tenant_access(array $user, mixed $id, bool $lock = false, bool $allowExpired = false): array {
     $id = identifier($id);
     if ($user['role'] !== 'superadmin' && $user['tenant_id'] !== $id) fail(404, 'Niet gevonden.');
     $tenant = row('SELECT * FROM ab_tenants WHERE id=?' . ($lock ? ' FOR UPDATE' : ''), [$id]);
     if (!$tenant) fail(404, 'Niet gevonden.');
+    if($lock&&!$allowExpired&&$user['role']!=='superadmin'&&trial_expired($id))fail(402,'Je proefperiode is afgelopen. Vraag activatie aan om verder te gaan.');
     return $tenant;
 }
 function transaction(callable $operation): mixed {

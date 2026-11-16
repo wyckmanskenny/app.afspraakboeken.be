@@ -1,9 +1,9 @@
 # Welkomstmails en meldingen van aanvragen
 
-De app verstuurt twee soorten e-mail via één SMTP-mailbox:
+De app verstuurt de volgende e-mails via één SMTP-mailbox:
 
 - **Welkomstmail:** automatisch nadat jij een klantaccount aanmaakt. De ontvanger is de opgeslagen accountbeheerder. De mail bevat een persoonlijke, eenmalige wachtwoordlink die 24 uur geldig is. Het account blijft inactief totdat jij het activeert.
-- **Nieuwe aanvraag:** na het opslaan van een aanvraag van de homepage of `/registreren/`, naar **kenny@kdesign.be**. Antwoorden op de melding gaat naar de aanvrager. Alle aanvragen staan ook onder **Aanvragen**; een mailstoring verwijdert ze niet.
+- **Nieuwe aanvraag:** na het opslaan van een informatie- of activatieaanvraag, naar **kenny@kdesign.be**. Antwoorden op de melding gaat naar de aanvrager. Alle aanvragen staan ook onder **Aanvragen**; een mailstoring verwijdert ze niet.
 
 Dit zijn transactionele mails. Er wordt geen nieuwsbriefinschrijving gemaakt. Boekingsbevestigingen en agenda-integraties zijn nog niet aangesloten.
 
@@ -22,7 +22,7 @@ Open op Hostinger je **bestaande** `public_html/api/private/config.php` (of je e
         'username' => 'VUL_JE_VOLLEDIGE_MAILBOXADRES_IN',
         'password' => 'VUL_HET_MAILBOXWACHTWOORD_IN',
         'from_email' => 'VUL_JE_AFZENDERADRES_IN',
-        'from_name' => 'Afspraakboeken.be · door Wycked',
+        'from_name' => 'Afspraakboeken.be · Wycked Media ®',
         'reply_to' => 'kenny@kdesign.be',
     ],
 ```
@@ -44,6 +44,9 @@ Zonder SMTP-instellingen wordt een klantaccount wel opgeslagen en krijg je een k
 
 ## Aanvraagpagina
 
-`/registreren/` verzamelt naam, bedrijf, e-mailadres en sector. Telefoon en toelichting zijn optioneel. Het formulier maakt geen gebruikersaccount of abonnement aan. Na opslaan in de database krijgt de bezoeker een bevestiging op het scherm en komt de aanvraag in de superadmininbox. De database wordt opgeslagen vóór het versturen van de melding.
+De informatieroute `/registreren/` verzamelt naam, bedrijf, e-mailadres en sector. Telefoon en toelichting zijn optioneel. Het formulier maakt geen gebruikersaccount of abonnement aan. Na opslaan in de database krijgt de bezoeker een bevestiging op het scherm en komt de aanvraag in de superadmininbox. De database wordt opgeslagen vóór het versturen van de melding.
 
 De indeling gebruikt een kort formulier met één duidelijke actie, een aparte link voor bestaande gebruikers en een uitleg van de volgende stap. Referenties: https://calendly.com/signup en https://slack.com/intl/en-gb/contact-sales . De tekst en vormgeving zijn voor Afspraakboeken.be gemaakt; er worden geen fictieve beoordelingen, klantenaantallen of gratis proefperiodes getoond.
+
+
+Proefaccounts gebruiken dezelfde SMTP-koppeling voor e-mailbevestiging en herinneringen. Zie [TRIALS.md](TRIALS.md) voor de aparte proefaccountflow en de vereiste crontaak.

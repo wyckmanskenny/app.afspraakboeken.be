@@ -5,10 +5,10 @@ PHP 8.2+ / MySQL 8 or MariaDB 10.6+, with PDO MySQL, JSON, OpenSSL and InnoDB. N
 ## Account model
 
 - One login screen. The role is read from the database, never selected or accepted from the browser.
-- The first superadmin is installed using a private server-side setup key. No public self-registration exists.
+- The first superadmin is installed using a private server-side setup key. Public trials require mailbox verification before a company or login is created.
 - Superadmins create inactive companies with one initial company administrator, choose monthly/lifetime terms and manually activate them. Billing happens outside this platform.
 - Company administrators can access only their own settings, services, appointments and enabled CRM. Billing data and the website inbox are not returned to them.
-- Activation/password-reset links expire after 24 hours and work once. With SMTP configured, new company administrators receive a branded welcome email. The superadmin can resend it or personally share the link. Account access still requires manual company activation.
+- Activation/password-reset links expire after 24 hours and work once. With SMTP configured, new company administrators receive a branded welcome email. The superadmin can resend it or personally share the link. Manually created accounts still require manual company activation; verified public trials start immediately.
 - Session cookies are host-only, HttpOnly, Secure and SameSite=Lax. Tokens are hashed in the database. Sessions expire after 30 minutes of inactivity or 8 hours absolute. Deactivation and password changes revoke sessions.
 - Authenticated writes require a session CSRF token and the configured Origin. Public contact writes allow only configured homepage origins. Public booking exposes availability, never existing customers' details.
 
@@ -28,9 +28,15 @@ The old demonstration is isolated under `/demo/`. The public homepage uses that 
 
 ## Current limits
 
-Google/Outlook calendar synchronization, automatic booking email, reminders and payments are not connected. Stored booking email templates are marked as previews. Booking confirmation is shown on screen and can be downloaded as an ICS calendar event.
+Google/Outlook calendar synchronization, automatic booking email, booking reminders and payments are not connected. Stored booking email templates are marked as previews. Booking confirmation is shown on screen and can be downloaded as an ICS calendar event.
 
-The public `/registreren/` page collects account requests without creating login accounts. Both it and the homepage contact form save requests in the agency inbox. SMTP notifications go to `kenny@kdesign.be`, with the validated applicant as Reply-To. A failed email never rolls back a saved request or company. Set up the private SMTP configuration using [docs/EMAIL.md](docs/EMAIL.md); without it, the inbox works but no mail is sent. Billing email is independent of the administrator's login email and is visible only to the agency.
+The public `/registreren/` information route stays on the same page in two steps. `/registreren/?mode=trial` sends a single-use 24-hour verification link; the 14-day trial starts only after mailbox confirmation and password setup. A public trial cannot start without SMTP. Trial expiry is enforced by the API even when cron is absent. Existing accounts are not converted to trials.
+
+The homepage replaces its contact form with an information CTA and links to `/prijzen/`: €15 per user/month, billed annually at €180 excluding VAT. One administrator per company is currently supported. Trial upgrades are explicit requests, with billing details stored separately from the login address. Only a superadmin converts the trial after agreeing the annual formula; invoicing and collection stay manual.
+
+Information and activation requests are stored in the superadmin inbox and notified to `kenny@kdesign.be`. The red badge counts status `new`; opening the inbox does not clear it. Visible agency tabs refresh the count every minute without extending the session idle timeout.
+
+[docs/TRIALS.md](docs/TRIALS.md) covers the additive database migration and required Hostinger PHP cron job for trial reminders at 3, 2, 1 and 0 calendar days before expiry (Europe/Brussels). [docs/EMAIL.md](docs/EMAIL.md) covers SMTP. Failures never remove saved leads or existing accounts.
 
 The first server configuration and one successful real Hostinger database smoke test are required before operational use. This release does not claim an independent security audit.
 
