@@ -101,3 +101,73 @@ test('Expired trial users retain a route to activation and see the red trial ban
  await until(()=>ui.document.querySelector('.trial-banner'));assert.ok(ui.document.body.textContent.includes('Je gegevens blijven bewaard'));
  ui.document.querySelector('[data-page=subscription]').click();assert.ok(ui.document.getElementById('subscription-form'));await ui.close();
 });
+
+test('A request skips the calendar, retains entered details and emits only lead_submitted',async()=>{
+ const ui=await setup(route=>route==='public/catalog'?result({tenant:{...company,branding:brand,features:company.settings.features,location:'Op afspraak',intake:{mode:'request',serviceSelection:true}},services:[service]}):route==='public/lead'?result({id:'f'.repeat(32),status:'received',replayed:false},201):result({error:'Unexpected route'},500),'https://app.afspraakboeken.be/?mode=book&tenant='+company.id);
+ await until(()=>ui.document.querySelector('[data-book-action="service"]'));
+ ui.document.querySelector('[data-book-action="service"]').click();
+ assert.equal(ui.document.querySelector('.month-grid'),null);
+ let form=ui.document.getElementById('public-booking-form');
+ form.querySelector('[name=name]').value='Potential Customer';
+ ui.document.querySelector('[data-book-action="back-service"]').click();ui.document.querySelector('[data-book-action="service"]').click();
+ form=ui.document.getElementById('public-booking-form');assert.equal(form.querySelector('[name=name]').value,'Potential Customer');
+ form.querySelector('[name=email]').value='lead@example.test';form.querySelector('[name=notes]').value='A quote please';form.querySelector('[name=marketing_consent]').checked=true;
+ form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.document.body.textContent.includes('Je aanvraag is ontvangen'));
+ const sent=ui.calls.find(c=>c.route==='public/lead').data;assert.equal('date' in sent,false);assert.equal('time' in sent,false);assert.equal(sent.service,service.id);
+ assert.equal(ui.calls.filter(c=>c.route==='public/slots'||c.route==='public/book').length,0);
+ assert.equal(ui.window.dataLayer[0].event,'lead_submitted');assert.equal('value' in ui.window.dataLayer[0],false);assert.equal('email' in ui.window.dataLayer[0],false);
+ assert.equal(ui.document.querySelector('[data-book-action=ics]'),null);await ui.close();
+});
+test('Contact-only mode works without services, keeps data after failure and submits without marketing consent',async()=>{
+ let attempt=0;
+ const ui=await setup(route=>route==='public/catalog'?result({tenant:{...company,branding:brand,features:{...company.settings.features,notes:false},intake:{mode:'request',serviceSelection:false}},services:[]}):++attempt===1?result({error:'Please retry'},503):result({id:'f'.repeat(32),status:'received'},201),'https://app.afspraakboeken.be/?mode=book&tenant='+company.id);
+ await until(()=>ui.document.getElementById('public-booking-form'));
+ let form=ui.document.getElementById('public-booking-form');assert.equal(ui.document.querySelector('.steps').textContent,'1Gegevens');assert.ok(form.querySelector('[name=notes]'));
+ form.querySelector('[name=name]').value='Lead';form.querySelector('[name=email]').value='lead@example.test';
+ form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>form.querySelector('.form-error').textContent==='Please retry');
+ assert.equal(form.querySelector('[name=name]').value,'Lead');assert.equal(form.querySelector('button[type=submit]').disabled,false);
+ form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.document.body.textContent.includes('Je aanvraag is ontvangen'));
+ assert.equal(ui.calls.filter(c=>c.route==='public/lead')[0].data.request_key,ui.calls.filter(c=>c.route==='public/lead')[1].data.request_key);
+ assert.equal(ui.calls.find(c=>c.route==='public/lead').data.service,null);assert.equal(ui.window.dataLayer,undefined);await ui.close();
+});
+test('Company admins can save intake mode and see leads even when the booking CRM module is disabled',async()=>{
+ const tenant=structuredClone(company);tenant.settings.features.crm=false;tenant.settings.intake={mode:'request',serviceSelection:false};let saved;
+ const lead={id:'f'.repeat(32),name:'Lead <script>name</script>',email:'lead@example.test',phone:'0400000000',serviceName:'',stage:'new',createdAt:'2026-11-16T12:00:00Z',revision:1,notes:'Quote',internalNotes:'',source:'website'};
+ const ui=await setup((route,data)=>route==='me'?result({csrf:'csrf',user:{role:'admin',name:'Owner',tenant_id:tenant.id}}):route==='tenant/save'?(saved=data,result({ok:true})):result({tenant,services:[],bookings:[],leads:[lead]}));
+ await until(()=>ui.document.querySelector('[data-page=widget]'));
+ ui.document.querySelector('[data-page=widget]').click();await until(()=>ui.document.getElementById('intake-form'));
+ let form=ui.document.getElementById('intake-form');assert.equal(ui.document.getElementById('intake-service-option').hidden,false);
+ assert.ok(ui.document.getElementById('widget-code').value.includes('data-label="Neem contact op"'));
+ form.querySelector('[name=serviceSelection]').checked=true;form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>saved);
+ assert.deepEqual(JSON.parse(JSON.stringify(saved.settings)),{intake:{mode:'request',serviceSelection:true}});await until(()=>ui.document.getElementById('intake-form')!==form);
+ ui.document.querySelector('[data-page=crm]').click();await until(()=>ui.document.querySelector('[data-action=lead-detail]'));
+ assert.equal(ui.document.querySelector('script'),null);assert.ok(ui.document.body.textContent.includes('Nog geen afspraak'));
+ ui.document.querySelector('[data-action=lead-detail]').click();assert.ok(ui.document.getElementById('lead-form'));
+ ui.document.querySelector('[data-action=lead-plan]').click();assert.ok(ui.document.getElementById('modal').textContent.includes('Voeg eerst een dienst'));await ui.close();
+});
+test('A CRM lead can be scheduled and stays a single linked card',async()=>{
+ const lead={id:'f'.repeat(32),name:'Lead',email:'lead@example.test',phone:'',service:service.id,serviceName:service.name,stage:'new',createdAt:'2026-11-16T12:00:00Z',revision:1,internalNotes:'Called',source:'website'};
+ const workspace={tenant:company,services:[service],bookings:[],leads:[lead]};let planned;
+ const ui=await setup((route,data)=>{
+  if(route==='me')return result({csrf:'csrf',user:{role:'admin',name:'Owner',tenant_id:company.id}});
+  if(route==='lead/slots')return result({times:['10:00','11:00']});
+  if(route==='lead/schedule'){planned=data;lead.bookingId='e'.repeat(32);lead.stage='contacted';workspace.bookings.push({id:lead.bookingId,name:lead.name,serviceName:service.name,date:data.date,time:data.time,status:'confirmed',stage:'contacted'});return result({id:lead.bookingId},201);}
+  return result(workspace);
+ },'https://app.afspraakboeken.be/?view=crm');
+ await until(()=>ui.document.querySelector('[data-action=lead-detail]'));ui.document.querySelector('[data-action=lead-detail]').click();ui.document.querySelector('[data-action=lead-plan]').click();
+ const form=ui.document.getElementById('lead-plan-form'),date=form.querySelector('[name=date]');date.value=new Date(Date.now()+3*86400000).toISOString().slice(0,10);date.dispatchEvent(new ui.window.Event('change',{bubbles:true}));
+ await until(()=>!form.querySelector('[name=time]').disabled);const time=form.querySelector('[name=time]');time.value='10:00';time.dispatchEvent(new ui.window.Event('change',{bubbles:true}));
+ assert.equal(form.querySelector('button[type=submit]').disabled,false);form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>planned&&ui.document.body.textContent.includes('Ingepland'));
+ assert.equal(planned.id,lead.id);assert.equal(ui.document.querySelectorAll('.lead-card').length,1);assert.equal(lead.internalNotes,'Called');await ui.close();
+});
+test('Widget forwards lead events without revenue or personal data and rejects untrusted frames',async()=>{
+ const window=new Window({url:'https://customer.example/'}),document=window.document;
+ const script=document.createElement('script');script.src='https://app.afspraakboeken.be/widget.js';script.dataset.account=company.id;script.dataset.mode='inline';document.body.append(script);
+ Object.defineProperty(document,'currentScript',{value:script});
+ vm.runInContext(fs.readFileSync(path.join(root,'widget.js'),'utf8'),vm.createContext({window,document,location:window.location,URL,URLSearchParams,console}));
+ const frame=document.querySelector('iframe'),data={type:'slot:lead_submitted',event:{event_id:'event1',value:100,email:'private@example.test',name:'Private'}};
+ const emit=(origin,source)=>window.dispatchEvent(new window.MessageEvent('message',{origin,source,data}));
+ emit('https://evil.example',frame.contentWindow);emit('https://app.afspraakboeken.be',window);assert.equal(window.dataLayer,undefined);
+ emit('https://app.afspraakboeken.be',frame.contentWindow);emit('https://app.afspraakboeken.be',frame.contentWindow);
+ assert.equal(window.dataLayer.length,1);assert.equal(window.dataLayer[0].event,'lead_submitted');for(const key of ['value','email','name'])assert.equal(key in window.dataLayer[0],false);await window.happyDOM.close();
+});

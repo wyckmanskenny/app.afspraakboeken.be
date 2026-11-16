@@ -1,4 +1,4 @@
-import {logo,submit} from '../ui.js?v=0.10.0';
+import {logo,submit} from '../ui.js?v=0.11.0';
 document.getElementById('brand').innerHTML=logo();
 document.getElementById('setup-form').onsubmit=event=>{
  event.preventDefault();submit(event.currentTarget,async data=>{

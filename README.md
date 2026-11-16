@@ -43,3 +43,7 @@ The first server configuration and one successful real Hostinger database smoke 
 ## Validation
 
 `tests/api-integration.py` uses a **fresh disposable local database**, rejects non-local server URLs, and exercises installation lockout, auth/CSRF, cross-company access, invites, activation, service edits, stale writes, idempotency, real concurrent reservations, CRM, cancellation, contact access, and session revocation. See [tests/README.md](tests/README.md).
+
+## Websitewidget and company leads (0.11.0)
+
+Company admins can choose direct booking or collect requests, with optional service selection. Requests are stored separately from reservations and the agency sales inbox, can be followed up in the CRM, and can later be linked to an appointment. See [docs/LEADS.md](docs/LEADS.md) for behavior, additive migration, SMTP notifications, tracking and current limits.

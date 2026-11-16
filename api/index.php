@@ -4,6 +4,7 @@ require __DIR__.'/bootstrap.php';
 require __DIR__.'/domain.php';
 require __DIR__.'/mailer.php';
 require __DIR__.'/lifecycle.php';
+require __DIR__.'/leads.php';
 
 try {
     $route=trim($_GET['route']??'health','/');$method=$_SERVER['REQUEST_METHOD'];
@@ -11,9 +12,9 @@ try {
         header('Access-Control-Allow-Origin: *');
         try{
             configuration();$ready=(int)query("SELECT COUNT(*) FROM ab_users WHERE role='superadmin'")->fetchColumn()>0;
-            if($ready)ensure_lifecycle_schema();
-            respond(['ready'=>$ready,'version'=>'0.10.0','trial_available'=>$ready&&mail_configuration()!==null]);
-        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.10.0'],503);}
+            if($ready){ensure_lifecycle_schema();ensure_leads_schema();}
+            respond(['ready'=>$ready,'version'=>'0.11.0','trial_available'=>$ready&&mail_configuration()!==null]);
+        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.11.0'],503);}
     }
     configuration();
     if($method==='OPTIONS'&&$route==='contact'){origin_guard(true);respond([],204);}
@@ -33,7 +34,7 @@ try {
         }finally{query('SELECT RELEASE_LOCK(?)',[$lock]);}
         respond(['message'=>'Je superadminaccount is aangemaakt. Je kunt nu aanmelden.'],201);
     }
-    ensure_lifecycle_schema();
+    ensure_lifecycle_schema();ensure_leads_schema();
     if($route==='trial/signup'&&$method==='POST')respond(trial_signup(body()),201);
     if(in_array($route,['trial/check','trial/accept'],true)&&$method==='POST')respond(trial_accept(body(),$route==='trial/accept'));
     if($route==='login'&&$method==='POST'){
@@ -76,17 +77,19 @@ try {
         send_lead_notice($id,['name'=>$name,'company'=>$company,'email'=>$email,'phone'=>$phone,'sector'=>$sector,'message'=>$message]);
         respond(['message'=>'Bedankt! Je aanvraag is ontvangen. Afspraak maken zal contact met je opnemen.'],201);
     }
+    if($route==='public/lead'&&$method==='POST')respond(public_lead(body()),201);
     if($route==='public/catalog'&&$method==='GET'){
         $id=identifier($_GET['tenant']??'');$t=row('SELECT * FROM ab_tenants WHERE id=? AND active=1',[$id]);
         if(!$t||trial_expired($id))fail(404,'Deze boekingspagina is momenteel niet beschikbaar.');
         $settings=decoded($t['settings_json']);$services=array_map('service_view',query('SELECT * FROM ab_services WHERE tenant_id=? AND active=1 ORDER BY name',[$id])->fetchAll());
         foreach($services as &$s){unset($s['revision']);if(!$settings['features']['prices'])unset($s['price']);if(!$settings['features']['media']){$s['image']='';$s['video']='';}}unset($s);
-        respond(['tenant'=>['id'=>$t['id'],'name'=>$t['name'],'location'=>$settings['location'],'branding'=>$settings['branding'],'features'=>$settings['features']],'services'=>$services]);
+        respond(['tenant'=>['id'=>$t['id'],'name'=>$t['name'],'location'=>$settings['location'],'branding'=>$settings['branding'],'features'=>$settings['features'],'intake'=>intake_settings($settings)],'services'=>(intake_settings($settings)['mode']==='request'&&!intake_settings($settings)['serviceSelection'])?[]:$services]);
     }
     if($route==='public/slots'&&$method==='GET'){
         $id=identifier($_GET['tenant']??'');$service=identifier($_GET['service']??'');$date=text($_GET,'date',10,true);
         $t=row('SELECT * FROM ab_tenants WHERE id=? AND active=1',[$id]);$s=row('SELECT * FROM ab_services WHERE id=? AND tenant_id=? AND active=1',[$service,$id]);
         if(!$t||!$s||trial_expired($id))fail(404,'Deze dienst is niet beschikbaar.');
+        if(intake_settings(decoded($t['settings_json']))['mode']!=='booking')fail(409,'De werkwijze is gewijzigd. Herlaad de pagina om een aanvraag te sturen.');
         respond(['date'=>$date,'times'=>slots($t,$s,$date)]);
     }
     if($route==='public/book'&&$method==='POST'){
@@ -103,6 +106,7 @@ try {
             $t=row('SELECT * FROM ab_tenants WHERE id=? AND active=1 FOR UPDATE',[$tenantId]);if(!$t||trial_expired($tenantId))fail(404,'Deze boekingspagina is niet beschikbaar.');
             $existing=row('SELECT id,request_hash,status FROM ab_bookings WHERE tenant_id=? AND request_key=?',[$tenantId,$key]);
             if($existing){if(!hash_equals($existing['request_hash'],$fingerprint))fail(409,'Gebruik een nieuwe boekingsaanvraag.');return ['id'=>$existing['id'],'status'=>$existing['status'],'replayed'=>true];}
+            if(intake_settings(decoded($t['settings_json']))['mode']!=='booking')fail(409,'De werkwijze is gewijzigd. Herlaad de pagina om een aanvraag te sturen.');
             $s=row('SELECT * FROM ab_services WHERE id=? AND tenant_id=? AND active=1',[$serviceId,$tenantId]);if(!$s)fail(404,'Deze dienst is niet beschikbaar.');
             $settings=decoded($t['settings_json']);if($settings['features']['address']&&$address==='')fail(422,'Vul het adres voor de afspraak in.');
             if(!in_array($time,slots($t,$s,$date),true))fail(409,'Dit moment is intussen niet meer beschikbaar. Kies een ander tijdstip.');
@@ -115,6 +119,9 @@ try {
     }
     $user=identity(true,$route!=='notifications');
     if($method==='POST')csrf($user);
+    if($route==='lead/update'&&$method==='POST')respond(update_lead($user,body()));
+    if($route==='lead/slots'&&$method==='GET')respond(lead_slots($user,$_GET));
+    if($route==='lead/schedule'&&$method==='POST')respond(schedule_lead($user,body()),201);
     if($route==='notifications'&&$method==='GET'){superadmin($user);respond(notifications());}
     if($route==='trial/upgrade'&&$method==='POST')respond(request_subscription($user,body()));
     if($route==='trial/convert'&&$method==='POST')respond(convert_trial($user,body()));
@@ -150,7 +157,7 @@ try {
         $t=tenant_access($user,$_GET['tenant']??$user['tenant_id']);
         $services=query('SELECT * FROM ab_services WHERE tenant_id=? ORDER BY name',[$t['id']])->fetchAll();
         $bookings=query('SELECT * FROM ab_bookings WHERE tenant_id=? ORDER BY booking_date DESC,booking_time DESC LIMIT 2000',[$t['id']])->fetchAll();
-        respond(['tenant'=>tenant_view($t,$user['role']==='superadmin'),'services'=>array_map('service_view',$services),'bookings'=>array_map('booking_view',$bookings),'booking_limit'=>2000]);
+        respond(['tenant'=>tenant_view($t,$user['role']==='superadmin'),'services'=>array_map('service_view',$services),'bookings'=>array_map('booking_view',$bookings),'booking_limit'=>2000,'leads'=>array_map('lead_view',query('SELECT * FROM ab_leads WHERE tenant_id=? ORDER BY created_at DESC LIMIT 2000',[$t['id']])->fetchAll()),'lead_limit'=>2000]);
     }
     if($route==='tenant/save'&&$method==='POST'){
         $data=body();$result=transaction(function()use($user,$data){

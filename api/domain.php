@@ -2,7 +2,7 @@
 declare(strict_types=1);
 function default_settings(): array {
     return [
-        'location'=>'Op afspraak','notice'=>24,
+        'location'=>'Op afspraak','notice'=>24,'intake'=>['mode'=>'booking','serviceSelection'=>true],
         'hours'=>array_map(fn($i)=>['open'=>$i>0 && $i<6,'start'=>'09:00','end'=>'18:00'],range(0,6)),
         'blocks'=>[], 'branding'=>['primary'=>'#264653','secondary'=>'#2a9d8f','background'=>'#f8fafb','font'=>'dm-sans'],
         'features'=>['prices'=>true,'media'=>true,'address'=>false,'notes'=>true,'crm'=>true,'tracking'=>false],
@@ -20,6 +20,11 @@ function time_minutes(string $value): int {
 }
 function clean_settings(array $data, array $previous, bool $agency): array {
     $out=$previous;
+    if(isset($data['intake'])){
+        $intake=$data['intake'];
+        if(!is_array($intake)||!in_array($intake['mode']??'', ['booking','request'],true))fail(422,'Kies direct boeken of aanvragen ontvangen.');
+        $out['intake']=['mode'=>$intake['mode'],'serviceSelection'=>flag($intake,'serviceSelection',true)];
+    }
     if (isset($data['location'])) $out['location']=text($data,'location',200);
     if (isset($data['notice'])) $out['notice']=integer($data,'notice',0,168);
     if (isset($data['hours'])) {
@@ -55,6 +60,7 @@ function clean_settings(array $data, array $previous, bool $agency): array {
 }
 function tenant_view(array $tenant, bool $internal = false): array {
     $out=['id'=>$tenant['id'],'name'=>$tenant['name'],'sector'=>$tenant['sector'],'email'=>$tenant['contact_email'],'active'=>(bool)$tenant['active'],'revision'=>(int)$tenant['revision'],'settings'=>decoded($tenant['settings_json'])];
+    $out['settings']['intake']=intake_settings($out['settings']);
     $out['trial']=trial_view($tenant['id']);
     if ($internal) {
         $out['subscription']=['type'=>$tenant['plan_type'],'monthlyAmount'=>(int)$tenant['monthly_cents']/100,'lifetimeAmount'=>(int)$tenant['lifetime_cents']/100,'billing'=>decoded($tenant['billing_json'])];

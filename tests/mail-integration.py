@@ -139,6 +139,9 @@ try:
     from trial_integration import run as run_trial_tests
     run_trial_tests(Client,owner,anonymous,messages,envelopes,config,state)
 
+    from lead_integration import run as run_lead_tests
+    run_lead_tests(Client,owner,anonymous,messages,envelopes,config,state)
+
     state['reject']=True
     failed=create(owner,'smtp-failure@example.test');assert failed['mail']['status']=='failed'
     assert anonymous.call('invite/check',{'token':failed['invite_url'].split('#')[1]})['company']=='Mail Company'

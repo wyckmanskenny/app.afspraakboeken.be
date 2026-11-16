@@ -20,3 +20,5 @@ Syntax: run `php -l` on every `api/*.php` file and `node --check` on each JavaSc
 
 
 The SMTP suite also invokes `trial_integration.py`. Supply `TEST_RUNTIME_USR` pointing to the local test runtime containing `bin/php8.4`, `bin/mariadb`, and `lib/php/20240924`; `LD_LIBRARY_PATH` must match that runtime if it uses bundled libraries. The suite changes dates only in `ab_backend_test`, tests all four reminder milestones, SMTP retry spacing, expired-trial restrictions, conversion and notification counts. It verifies that passive badge polling does not refresh the idle session timestamp. No production database or mail server is used.
+
+The SMTP suite invokes `lead_integration.py` for company leads, including contact-only mode without services, optional service selection, per-tenant access, consent, notification recipients, idempotent submissions, stale mode switches, internal scheduling, concurrent requests, a public/internal booking race, CRM notes, closing without booking and trial expiry. `ui-smoke.mjs` covers these public journeys and the corresponding account controls plus iframe tracking boundaries.
