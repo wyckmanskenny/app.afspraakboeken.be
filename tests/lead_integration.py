@@ -48,6 +48,27 @@ def run(Client,owner,anonymous,messages,envelopes,config,state):
     assert a.call('workspace')['leads'][0]['internalNotes']=='Called, quote sent'
     assert not any(x['email']=='lead-person@example.test' for x in owner.call('contacts')['contacts'])
     print('PASS contact-only leads, tenant isolation, separate agency inbox, consent, SMTP and retry deduplication',flush=True)
+    # Manual intake, stable column identifiers and tenant-safe board settings.
+    w=a.call('workspace');columns=[{'id':'new','name':'Binnengekomen'},{'id':'contacted','name':'In behandeling'},{'id':'done','name':'Gesloten'},{'id':'quote','name':'Offerte'}]
+    payload={'tenant':tenant,'revision':w['tenant']['revision'],'columns':columns}
+    b.call('crm/columns',payload,expected=404)
+    a.call('crm/columns',payload)
+    a.call('crm/columns',payload,expected=409)
+    w=a.call('workspace');assert w['tenant']['settings']['crmColumns']==columns
+    a.call('crm/columns',{**payload,'revision':w['tenant']['revision'],'columns':columns[1:]},expected=422)
+    manual={'tenant':tenant,'name':'Phone only','phone':'0470000000','email':'','request_key':secrets.token_hex(16)}
+    before=len(messages)
+    b.call('lead/create',manual,expected=404)
+    a.call('lead/create',{**manual,'phone':''},expected=422)
+    created=a.call('lead/create',manual,expected=201)
+    assert a.call('lead/create',manual,expected=201)['id']==created['id'] and len(messages)==before
+    item=next(x for x in a.call('workspace')['leads'] if x['id']==created['id'])
+    assert item['stage']=='new' and item['source']=='manual' and item['email']==''
+    a.call('lead/update',{'tenant':tenant,'id':item['id'],'revision':item['revision'],'stage':'quote'})
+    item=next(x for x in a.call('workspace')['leads'] if x['id']==created['id'])
+    assert item['stage']=='quote'
+    a.call('lead/update',{'tenant':tenant,'id':item['id'],'revision':item['revision'],'stage':'unknown'},expected=422)
+    print('PASS manual leads, deduplication, custom columns, revision conflicts and tenant isolation',flush=True)
     service={'name':'Advice','description':'Advice for your business','duration':30,'buffer':30,'price':50,'active':True}
     sid=a.call('service/save',{**service,'tenant':tenant})['id'];foreign=b.call('service/save',{**service,'tenant':other})['id']
     intake(selection=True)
@@ -63,7 +84,7 @@ def run(Client,owner,anonymous,messages,envelopes,config,state):
     assert '10:00' in a.call('lead/slots',tenant=tenant,id=l['id'],service=sid,date=tomorrow)['times']
     intake('booking')
     anonymous.call('public/lead',{**lead,'email':'stale@example.test','request_key':secrets.token_hex(16)},expected=409)
-    assert len(a.call('workspace')['leads'])==2 and not a.call('workspace')['bookings']
+    assert len(a.call('workspace')['leads'])==3 and not a.call('workspace')['bookings']
     l=next(x for x in a.call('workspace')['leads'] if x['id']==l['id'])
     plan={'tenant':tenant,'id':l['id'],'revision':l['revision'],'service':sid,'date':tomorrow,'time':'10:00'}
     b.call('lead/slots',tenant=other,id=l['id'],service=foreign,date=tomorrow,expected=404)

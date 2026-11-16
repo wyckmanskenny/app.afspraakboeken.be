@@ -65,7 +65,7 @@ function update_lead(array $user,array $data): array {
         $t=tenant_access($user,$data['tenant']??null,true);$id=identifier($data['id']??null);
         $lead=row('SELECT * FROM ab_leads WHERE id=? AND tenant_id=?',[$id,$t['id']]);if(!$lead)fail(404,'Aanvraag niet gevonden.');
         if(integer($data,'revision',1,2147483647)!==(int)$lead['revision'])fail(409,'Deze aanvraag is elders gewijzigd. Vernieuw het overzicht.');
-        $stage=$data['stage']??$lead['stage'];if(!in_array($stage,['new','contacted','done'],true))fail(422,'Kies een geldige opvolgfase.');
+        $stage=$data['stage']??$lead['stage'];if(!in_array($stage,array_column(crm_columns(decoded($t['settings_json'])),'id'),true))fail(422,'Kies een geldige opvolgfase.');
         $notes=isset($data['internalNotes'])?text($data,'internalNotes',4000):$lead['internal_notes'];
         query('UPDATE ab_leads SET stage=?,internal_notes=?,revision=revision+1 WHERE id=?',[$stage,$notes,$id]);
         audit($user['id'],'lead.updated',$id);return ['ok'=>true];
@@ -98,5 +98,43 @@ function schedule_lead(array $user,array $data): array {
             $booking,$t['id'],$service,$s['name'],$s['duration'],$s['buffer'],$s['price_cents'],$date,$time,$start->setTimezone($utc)->format('Y-m-d H:i:s'),$end->setTimezone($utc)->format('Y-m-d H:i:s'),$lead['customer_name'],$lead['customer_email'],$lead['customer_phone'],$lead['customer_address'],$lead['customer_notes'],'contacted',$lead['source'],$lead['campaign'],$lead['marketing_consent'],bin2hex(random_bytes(32)),hash('sha256',encoded([$id,$service,$date,$time]))]);
         query("UPDATE ab_leads SET booking_id=?,stage='contacted',revision=revision+1 WHERE id=?",[$booking,$id]);
         audit($user['id'],'lead.scheduled',$id);return ['id'=>$booking,'replayed'=>false];
+    });
+}
+
+function crm_columns(array $settings): array {
+    return $settings['crmColumns']??[['id'=>'new','name'=>'Nieuw'],['id'=>'contacted','name'=>'Gecontacteerd'],['id'=>'done','name'=>'Afgerond']];
+}
+function save_crm_columns(array $user,array $data): array {
+    return transaction(function()use($user,$data){
+        $t=tenant_access($user,$data['tenant']??null,true);
+        if(integer($data,'revision',1,2147483647)!==(int)$t['revision'])fail(409,'Het bord is elders gewijzigd. Vernieuw het overzicht.');
+        $settings=decoded($t['settings_json']);$old=crm_columns($settings);$columns=$data['columns']??null;
+        if(!is_array($columns)||!array_is_list($columns)||count($columns)<count($old)||count($columns)>12)fail(422,'Gebruik maximaal 12 kolommen.');
+        $ids=[];$clean=[];
+        foreach($columns as $i=>$col){
+            if(!is_array($col))fail(422,'Ongeldige kolom.');
+            $id=text($col,'id',16,true);$name=text($col,'name',40,true);
+            if(!preg_match('/^[a-z][a-z0-9_]{0,15}$/D',$id)||in_array($id,$ids,true))fail(422,'Ongeldige kolom.');
+            if(isset($old[$i])&&$old[$i]['id']!==$id)fail(422,'Bestaande kolommen moeten behouden blijven.');
+            $ids[]=$id;$clean[]=['id'=>$id,'name'=>$name];
+        }
+        $settings['crmColumns']=$clean;
+        query('UPDATE ab_tenants SET settings_json=?,revision=revision+1 WHERE id=?',[encoded($settings),$t['id']]);
+        audit($user['id'],'crm.columns',$t['id']);return ['ok'=>true];
+    });
+}
+function create_manual_lead(array $user,array $data): array {
+    return transaction(function()use($user,$data){
+        $t=tenant_access($user,$data['tenant']??null,true);
+        $name=text($data,'name',120,true);$mail=text($data,'email',190);if($mail!=='')$mail=email($data);
+        $phone=text($data,'phone',40);if($mail===''&&$phone==='')fail(422,'Vul een telefoonnummer of e-mailadres in.');
+        $address=text($data,'address',250);$notes=text($data,'notes',1500);
+        $key=text($data,'request_key',64,true);if(!preg_match('/^[a-zA-Z0-9_-]{24,64}$/D',$key))fail(422,'Ongeldige aanvraag.');
+        $service=null;if(!empty($data['service'])){$service=row('SELECT * FROM ab_services WHERE id=? AND tenant_id=? AND active=1',[identifier($data['service']),$t['id']]);if(!$service)fail(422,'Kies een beschikbare dienst.');}
+        $hash=hash('sha256',encoded([$name,$mail,$phone,$address,$notes,$service['id']??null]));
+        $existing=row('SELECT id,request_hash FROM ab_leads WHERE tenant_id=? AND request_key=?',[$t['id'],$key]);
+        if($existing){if(!hash_equals($existing['request_hash'],$hash))fail(409,'Deze lead is al opgeslagen.');return ['id'=>$existing['id']];}
+        $id=uid();query("INSERT INTO ab_leads(id,tenant_id,service_id,service_name,customer_name,customer_email,customer_phone,customer_address,customer_notes,internal_notes,source,request_key,request_hash) VALUES (?,?,?,?,?,?,?,?,?,?,'manual',?,?)",[$id,$t['id'],$service['id']??null,$service['name']??'',$name,$mail,$phone,$address,$notes,'',$key,$hash]);
+        audit($user['id'],'lead.created',$id);return ['id'=>$id];
     });
 }

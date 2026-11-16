@@ -1,4 +1,4 @@
-import {SECTORS} from '../sectors.js?v=0.11.2';
+import {SECTORS} from '../sectors.js?v=0.12.0';
 const form=document.getElementById('registration-form'),status=document.getElementById('registration-status'),button=form.querySelector('button[type=submit]');
 const intro=document.getElementById('registration-intro'),heading=document.getElementById('form-heading');
 const trial=new URLSearchParams(location.search).get('mode')==='trial';

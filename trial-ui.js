@@ -1,4 +1,4 @@
-import {esc,money,dateLabel,button,pill,fieldError} from './ui.js?v=0.11.2';
+import {esc,money,dateLabel,button,pill,fieldError} from './ui.js?v=0.12.0';
 const endLabel=t=>new Intl.DateTimeFormat('nl-BE',{dateStyle:'medium',timeStyle:'short',timeZone:'Europe/Brussels'}).format(new Date(t.ends_at));
 export function trialBanner(tenant){
  const trial=tenant?.trial;if(!trial||trial.converted_at)return '';

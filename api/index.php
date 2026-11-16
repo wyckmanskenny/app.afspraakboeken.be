@@ -13,8 +13,8 @@ try {
         try{
             configuration();$ready=(int)query("SELECT COUNT(*) FROM ab_users WHERE role='superadmin'")->fetchColumn()>0;
             if($ready){ensure_lifecycle_schema();ensure_leads_schema();}
-            respond(['ready'=>$ready,'version'=>'0.11.2','trial_available'=>$ready&&mail_configuration()!==null]);
-        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.11.2'],503);}
+            respond(['ready'=>$ready,'version'=>'0.12.0','trial_available'=>$ready&&mail_configuration()!==null]);
+        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.12.0'],503);}
     }
     configuration();
     if($method==='OPTIONS'&&$route==='contact'){origin_guard(true);respond([],204);}
@@ -119,6 +119,8 @@ try {
     }
     $user=identity(true,$route!=='notifications');
     if($method==='POST')csrf($user);
+    if($route==='lead/create'&&$method==='POST')respond(create_manual_lead($user,body()),201);
+    if($route==='crm/columns'&&$method==='POST')respond(save_crm_columns($user,body()));
     if($route==='lead/update'&&$method==='POST')respond(update_lead($user,body()));
     if($route==='lead/slots'&&$method==='GET')respond(lead_slots($user,$_GET));
     if($route==='lead/schedule'&&$method==='POST')respond(schedule_lead($user,body()),201);
@@ -222,7 +224,7 @@ try {
         $data=body();$result=transaction(function()use($user,$data){
             $t=tenant_access($user,$data['tenant']??null,true);$id=identifier($data['id']??null);
             $b=row('SELECT * FROM ab_bookings WHERE id=? AND tenant_id=?',[$id,$t['id']]);if(!$b)fail(404,'Afspraak niet gevonden.');
-            if(isset($data['stage'])){if(!decoded($t['settings_json'])['features']['crm'])fail(403,'Klantopvolging staat niet aan.');if(!in_array($data['stage'],['new','contacted','done'],true))fail(422,'Ongeldige opvolgfase.');query('UPDATE ab_bookings SET stage=? WHERE id=?',[$data['stage'],$id]);}
+            if(isset($data['stage'])){if(!decoded($t['settings_json'])['features']['crm'])fail(403,'Klantopvolging staat niet aan.');if(!in_array($data['stage'],array_column(crm_columns(decoded($t['settings_json'])),'id'),true))fail(422,'Ongeldige opvolgfase.');query('UPDATE ab_bookings SET stage=? WHERE id=?',[$data['stage'],$id]);}
             if(isset($data['status'])){if($data['status']!=='cancelled')fail(422,'Een annulering kan niet automatisch worden teruggedraaid.');query('UPDATE ab_bookings SET status=\'cancelled\' WHERE id=?',[$id]);}
             audit($user['id'],'booking.updated',$id);return ['ok'=>true];
         });respond($result);

@@ -35,3 +35,11 @@ Geen naam, e-mail, telefoon of bericht in de datalayer. De widget controleert br
 ## Verificatie
 
 Lokale integratietests controleren beide rollen, tenantisolatie, dienstkeuze, contactformulier zonder diensten, mailontvangers, herhaalde inzendingen, moduswissels, trialverloop, beschikbaarheid, gelijktijdig inplannen en een race met een openbare reservering. E-mails gaan alleen naar een lokale TLS-testserver. DOM-tests controleren de drie routes, veldbehoud, bevestigingen, CRM, instelling en tracking. De beheerde visuele browserpreview was bij deze release niet beschikbaar; er zijn geen productieaccounts of productieaanvragen aangemaakt om te testen.
+
+## CRM board (0.12.0)
+
+Manual leads require a name and either phone or email. Optional service and address. Tenant-scoped, idempotent creation sends no email and reserves no time.
+
+Column labels and added columns are stored per tenant in settings.crmColumns, guarded by tenant revision. Existing IDs/order stay stable, including first column new and terminal column done. Maximum 12 columns and 40 characters per label. Renaming retains all records.
+
+Desktop drag-and-drop saves before rerendering; failure retains the original position. Dropdowns remain available for touch and keyboard. Focus view fills the viewport, closes with its button or Escape, and survives saves. Reduced-motion preferences disable animations.

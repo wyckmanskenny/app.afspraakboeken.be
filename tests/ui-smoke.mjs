@@ -172,3 +172,24 @@ test('Widget forwards lead events without revenue or personal data and rejects u
  emit('https://app.afspraakboeken.be',frame.contentWindow);emit('https://app.afspraakboeken.be',frame.contentWindow);
  assert.equal(window.dataLayer.length,1);assert.equal(window.dataLayer[0].event,'lead_submitted');for(const key of ['value','email','name'])assert.equal(key in window.dataLayer[0],false);await window.happyDOM.close();
 });
+test('CRM supports manual leads, column editing and focus mode without losing the board',async()=>{
+ const tenant=structuredClone(company);let leads=[];
+ const ui=await setup((route,data)=>{
+  if(route==='me')return result({csrf:'test',user:{id:'c'.repeat(32),role:'admin',tenant_id:tenant.id,name:'Owner'}});
+  if(route==='lead/create'){leads=[{id:'d'.repeat(32),name:data.name,email:'',phone:data.phone,stage:'new',revision:1,createdAt:'2026-11-16T10:00:00Z'}];return result({id:leads[0].id},201);}
+  if(route==='lead/update'){leads[0].stage=data.stage;leads[0].revision++;return result({ok:true});}
+  if(route==='crm/columns'){tenant.settings.crmColumns=data.columns;return result({ok:true});}
+  return result({tenant,services:[service],bookings:[],leads});
+ },'https://app.afspraakboeken.be/?view=crm');
+ try{
+  await until(()=>ui.document.querySelector('[data-action="lead-new"]'));
+  ui.document.querySelector('[data-action="crm-focus"]').click();assert.ok(ui.document.querySelector('.crm-focus'));
+  ui.document.querySelector('[data-action="lead-new"]').click();const form=ui.document.getElementById('manual-lead-form');form.elements.name.value='Telephone lead';form.elements.phone.value='0470000000';form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));
+  await until(()=>ui.document.querySelector('[data-card-id]'));assert.ok(ui.document.querySelector('.crm-focus'));assert.equal(ui.document.querySelector('[data-card-id]').getAttribute('draggable'),'true');
+  ui.document.querySelector('[data-action="crm-columns"]').click();ui.document.querySelector('[data-column-id="new"]').value='Binnengekomen';ui.document.querySelector('[data-action="column-add"]').click();const inputs=ui.document.querySelectorAll('[data-column-id]');inputs[3].value='Offerte verstuurd';ui.document.getElementById('crm-columns-form').dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));
+  await until(()=>ui.document.querySelectorAll('.kanban-column').length===4);assert.ok(ui.document.querySelector('.kanban-column').textContent.includes('Telephone lead'));assert.ok(ui.document.querySelector('.kanban-column').textContent.includes('Binnengekomen'));
+  const transfer={effectAllowed:'',setData:()=>{}};const drag=new ui.window.Event('dragstart',{bubbles:true,cancelable:true});drag.dataTransfer=transfer;ui.document.querySelector('[data-card-id]').dispatchEvent(drag);const drop=new ui.window.Event('drop',{bubbles:true,cancelable:true});drop.dataTransfer=transfer;ui.document.querySelector('[data-column="contacted"]').dispatchEvent(drop);
+  await until(()=>ui.document.querySelector('[data-column="contacted"] [data-card-id]'));assert.equal(ui.calls.filter(c=>c.route==='lead/update').length,1);
+  ui.document.querySelector('[data-action="crm-focus"]').click();assert.equal(ui.document.querySelector('.crm-focus'),null);
+ }finally{await ui.close();}
+});
