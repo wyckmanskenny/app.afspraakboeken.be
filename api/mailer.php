@@ -76,6 +76,7 @@ function deliver_mail(string $recipient, string $name, array $content, string $r
             $mail->addAddress($recipient, $name);
             $mail->isHTML(true);
             $mail->Subject = $content['subject'];
+            if(isset($content['message_id']))$mail->MessageID=$content['message_id'];
             $mail->Body = $content['html'];
             $mail->AltBody = $content['text'];
             $status = $mail->send() ? 'sent' : 'failed';

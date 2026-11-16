@@ -49,16 +49,11 @@ function public_lead(array $data): array {
         query('INSERT INTO ab_leads(id,tenant_id,service_id,service_name,customer_name,customer_email,customer_phone,customer_address,customer_notes,internal_notes,source,campaign,marketing_consent,request_key,request_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[
             $id,$tenantId,$s['id']??null,$s['name']??'',$name,$email,$phone,$settings['features']['address']?$address:'',$notes,'',$tracking?$source:'website',$tracking?$campaign:'',(int)$tracking,$key,$fingerprint]);
         crm_sync($t,'lead',$id);
+        queue_company_notification('lead',$id,$t);
         audit(null,'lead.received',$id);
         return ['id'=>$id,'status'=>'received','replayed'=>false];
     });
-    // Save first. A mail failure must never discard a lead or duplicate it on a retry.
-    if(!$result['replayed']){
-        $t=row('SELECT name,contact_email FROM ab_tenants WHERE id=?',[$tenantId]);
-        $content=lifecycle_mail('Nieuwe aanvraag voor '.$t['name'],"$name heeft een aanvraag ingediend.\n\nBekijk de contactgegevens en het bericht in je CRM. Er is nog geen tijdstip gereserveerd.",'Aanvraag bekijken',rtrim(configuration()['app_url'],'/').'/?view=crm');
-        $status=deliver_mail($t['contact_email'],$t['name'],$content,$email);
-        try{audit(null,'lead.mail_'.$status,$result['id']);}catch(Throwable $error){}
-    }
+    notify_company_after_commit('lead',$result['id']);
     return $result;
 }
 function update_lead(array $user,array $data): array {

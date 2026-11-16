@@ -38,7 +38,7 @@ Hostinger-instructie: https://www.hostinger.com/support/1575756-how-to-get-email
 3. De app meldt of de SMTP-server de mail heeft geaccepteerd. Controleer daarna de inbox en spammap. Acceptatie door de mailserver garandeert niet dat het bericht in de inbox belandt; volg voor domeinauthenticatie de instructies van je mailprovider.
 4. Doe een herkenbare testaanvraag op `/registreren/`. Controleer zowel **Aanvragen** als de mailbox `kenny@kdesign.be`.
 
-Zonder SMTP-instellingen wordt een klantaccount wel opgeslagen en krijg je een kopieerbare activatielink. Bij een verzendfout gebeurt hetzelfde. Er wordt nooit ten onrechte gemeld dat een mail is verstuurd. Er zijn geen automatische herhaalpogingen of oude meldingen die onverwacht alsnog worden verstuurd. Gebruik de knop in Administratie voor een bestaande klant.
+Zonder SMTP-instellingen wordt een klantaccount wel opgeslagen en krijg je een kopieerbare activatielink. Bij een verzendfout gebeurt hetzelfde. Er wordt nooit ten onrechte gemeld dat een mail is verstuurd. Voor welkomstmails zijn er geen automatische herhaalpogingen. Gebruik de knop in Administratie voor een bestaande klant. Meldingen over nieuwe bedrijfsaanvragen en boekingen hebben vanaf 0.16.1 wel automatische herhaalpogingen, zoals hieronder beschreven.
 
 **E-mailadres voor facturen** is apart bewerkbaar in Administratie. Dit wijzigt het aanmeldadres en de ontvanger van de welkomstmail niet. Facturatie blijft buiten de app.
 
@@ -50,3 +50,16 @@ De indeling gebruikt een kort formulier met één duidelijke actie, een aparte l
 
 
 Proefaccounts gebruiken dezelfde SMTP-koppeling voor e-mailbevestiging en herinneringen. Zie [TRIALS.md](TRIALS.md) voor de aparte proefaccountflow en de vereiste crontaak.
+
+
+## Nieuwe aanvraag of boeking bij een bedrijf (0.16.1)
+
+Een nieuwe openbare widgetboeking maakt tegelijk met de afspraak een unieke melding in `ab_company_notifications`. Losse openbare aanvragen gebruiken dezelfde wachtrij. Na opslaan probeert de app onmiddellijk te verzenden via de bestaande SMTP-configuratie. De ontvanger is het bedrijfsaccountadres (`contact_email`), nooit een ontvanger uit het publieke formulier, het facturatieadres of de agency-inbox.
+
+De onderwerpregel is **Nieuwe lead: afspraak geboekt** of **Nieuwe lead: aanvraag ontvangen**, met Afspraakboeken.be als afzendernaam. De HTML- en tekstversies bevatten naam, e-mail, telefoon, dienst, eventueel adres en klantbericht; boekingen bevatten ook datum, tijd (Belgische tijd) en duur. Interne CRM-notities worden niet verstuurd. Beantwoorden gaat naar de eindklant. De knop opent Afspraken of Klanten opvolgen na aanmelden.
+
+De bestaande `api/cron-trials.php` verwerkt voortaan ook maximaal 50 wachtende bedrijfsmeldingen per run. Geen nieuwe cronjob nodig. Na een bekende verzendfout wordt ten vroegste 15 minuten later opnieuw geprobeerd, bij de volgende cronrun, met maximaal 8 pogingen. Een afgebroken proces met onduidelijke verzendstatus wordt niet automatisch opnieuw verstuurd om duplicaten te vermijden. De e-mailinstellingen tonen het ontvangstadres, wachtende meldingen en meldingen die aandacht nodig hebben.
+
+Herhaalde formulierverzoeken gebruiken dezelfde melding; een verzonden melding wordt niet opnieuw verstuurd. Een vaste Message-ID helpt bij herkenning van herhaalpogingen. SMTP kan geen absolute exactly-once inboxbezorging garanderen wanneer de verbinding wegvalt nadat de ontvangende server de mail al heeft geaccepteerd. SMTP-acceptatie garandeert ook geen inboxplaatsing.
+
+Bestaande afspraken van vóór deze release worden niet achteraf gemaild. Handmatig ingevoerde leads en intern ingeplande afspraken maken geen extra melding aan de invoerende beheerder. Een geannuleerde afspraak of een gedeactiveerd bedrijf wordt bij een uitgestelde verzendpoging overgeslagen. De bevestigingsmail aan de eindklant is een afzonderlijke functie en wordt door deze update niet geactiveerd.

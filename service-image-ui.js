@@ -1,4 +1,4 @@
-import {request,serviceVisual} from './ui.js?v=0.16.0';
+import {request,serviceVisual} from './ui.js?v=0.16.1';
 const limit=5*1024*1024;
 const formats=['image/jpeg','image/png','image/webp'];
 export function mountServiceImage(form){

@@ -9,6 +9,7 @@ require __DIR__.'/crm.php';
 require __DIR__.'/partners.php';
 require __DIR__.'/calendar.php';
 require __DIR__.'/media.php';
+require __DIR__.'/company-notifications.php';
 
 try {
     $route=trim($_GET['route']??'health','/');$method=$_SERVER['REQUEST_METHOD'];
@@ -16,9 +17,9 @@ try {
         header('Access-Control-Allow-Origin: *');
         try{
             configuration();$ready=(int)query("SELECT COUNT(*) FROM ab_users WHERE role='superadmin'")->fetchColumn()>0;
-            if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();}
-            respond(['ready'=>$ready,'version'=>'0.16.0','trial_available'=>$ready&&mail_configuration()!==null]);
-        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.16.0'],503);}
+            if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();}
+            respond(['ready'=>$ready,'version'=>'0.16.1','trial_available'=>$ready&&mail_configuration()!==null]);
+        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.16.1'],503);}
     }
     configuration();
     if($method==='OPTIONS'&&$route==='contact'){origin_guard(true);respond([],204);}
@@ -38,7 +39,7 @@ try {
         }finally{query('SELECT RELEASE_LOCK(?)',[$lock]);}
         respond(['message'=>'Je superadminaccount is aangemaakt. Je kunt nu aanmelden.'],201);
     }
-    ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();
+    ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();
     if($route==='media/image'&&$method==='GET')serve_service_image($_GET);
     if($route==='calendar/callback'&&$method==='GET'){$destination=google_callback(identity(),$_GET);header('Location: '.$destination,true,303);exit;}
     if($route==='public/partner'&&$method==='GET'){$p=partner_code($_GET['code']??'');if(!$p)fail(404,'Partner niet gevonden.');respond(['name'=>$p['name']]);}
@@ -125,9 +126,10 @@ try {
             $tracking=$consent&&$settings['features']['tracking'];
             query('INSERT INTO ab_bookings(id,tenant_id,service_id,service_name,duration,buffer,price_cents,booking_date,booking_time,starts_at,ends_at,customer_name,customer_email,customer_phone,customer_address,customer_notes,source,campaign,marketing_consent,request_key,request_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[$id,$tenantId,$serviceId,$s['name'],$s['duration'],$s['buffer'],$s['price_cents'],$date,$time,$start->setTimezone($utc)->format('Y-m-d H:i:s'),$end->setTimezone($utc)->format('Y-m-d H:i:s'),$name,$email,$phone,$settings['features']['address']?$address:'',$settings['features']['notes']?$notes:'',$tracking?$source:'website',$tracking?$campaign:'',(int)$tracking,$key,$fingerprint]);
             google_enqueue($tenantId,'booking:'.$id);
+            queue_company_notification('booking',$id,$t);
             crm_sync($t,'booking',$id);
             return ['id'=>$id,'status'=>'confirmed','replayed'=>false];
-        });google_after_write($tenantId);respond($result,201);
+        });notify_company_after_commit('booking',$result['id']);google_after_write($tenantId);respond($result,201);
     }
     $user=identity(true,$route!=='notifications');
     if($method==='POST')csrf($user);
@@ -193,7 +195,7 @@ try {
         $t=tenant_access($user,$_GET['tenant']??$user['tenant_id']);
         $services=query('SELECT * FROM ab_services WHERE tenant_id=? ORDER BY name',[$t['id']])->fetchAll();
         $bookings=query('SELECT * FROM ab_bookings WHERE tenant_id=? ORDER BY booking_date DESC,booking_time DESC LIMIT 2000',[$t['id']])->fetchAll();
-        respond(['tenant'=>tenant_view($t,$user['role']==='superadmin'),'services'=>array_map('service_view',$services),'bookings'=>array_map('booking_view',$bookings),'booking_limit'=>2000,'leads'=>array_map('lead_view',query('SELECT * FROM ab_leads WHERE tenant_id=? ORDER BY created_at DESC LIMIT 2000',[$t['id']])->fetchAll()),'lead_limit'=>2000]);
+        respond(['tenant'=>tenant_view($t,$user['role']==='superadmin'),'services'=>array_map('service_view',$services),'bookings'=>array_map('booking_view',$bookings),'booking_limit'=>2000,'notification_mail'=>company_notification_status($t['id']),'leads'=>array_map('lead_view',query('SELECT * FROM ab_leads WHERE tenant_id=? ORDER BY created_at DESC LIMIT 2000',[$t['id']])->fetchAll()),'lead_limit'=>2000]);
     }
     if($route==='tenant/save'&&$method==='POST'){
         $data=body();$result=transaction(function()use($user,$data){

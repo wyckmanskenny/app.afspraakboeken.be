@@ -146,6 +146,9 @@ try:
     from partner_integration import run as run_partner_tests
     run_partner_tests(Client,owner,anonymous,messages)
 
+    from booking_mail_integration import run as run_booking_mail_tests
+    run_booking_mail_tests(Client,owner,anonymous,messages,envelopes,config,state)
+
     state['reject']=True
     failed=create(owner,'smtp-failure@example.test');assert failed['mail']['status']=='failed'
     assert anonymous.call('invite/check',{'token':failed['invite_url'].split('#')[1]})['company']=='Mail Company'

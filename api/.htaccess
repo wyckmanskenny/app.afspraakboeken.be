@@ -1,3 +1,3 @@
-<FilesMatch "^(schema\.sql|media\.sql|media\.php|config\.example\.php|bootstrap\.php|domain\.php)$">
+<FilesMatch "^(schema\.sql|company-notifications\.sql|company-notifications\.php|media\.sql|media\.php|config\.example\.php|bootstrap\.php|domain\.php)$">
   Require all denied
 </FilesMatch>

@@ -1,5 +1,5 @@
-import {esc,logo,request,setCsrf,submit,fieldError,money,toast} from '../ui.js?v=0.16.0';
-import {SECTORS} from '../sectors.js?v=0.16.0';
+import {esc,logo,request,setCsrf,submit,fieldError,money,toast} from '../ui.js?v=0.16.1';
+import {SECTORS} from '../sectors.js?v=0.16.1';
 const root=document.getElementById('app');let state=null;
 const button=(text,action,attrs='')=>`<button type="button" class="btn small" data-partner="${action}" ${attrs}>${text}</button>`;
 const status=a=>!Number(a.active)?'Wacht op activatie':a.trial_end&&!a.converted_at?(new Date(a.trial_end.replace(' ','T')+'Z')<new Date()?'Proefperiode afgelopen':'Gratis proefperiode'):'Actief';

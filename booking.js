@@ -1,5 +1,5 @@
-import {esc,money,dateLabel,icon,serviceVisual,request,fieldError,submit,safeUrl} from './ui.js?v=0.16.0';
-import {TODAY,addDays,dayOf,brandVariables,epoch} from './core.js?v=0.16.0';
+import {esc,money,dateLabel,icon,serviceVisual,request,fieldError,submit,safeUrl} from './ui.js?v=0.16.1';
+import {TODAY,addDays,dayOf,brandVariables,epoch} from './core.js?v=0.16.1';
 let tenant,services,step=1,service=null,date=null,time=null,month=TODAY().slice(0,7),times=[],fields={},loading=false,error='',confirmation=null,pending=false;
 let requestKey=crypto.randomUUID(),slotGeneration=0;
 const emitted=new Set(),params=new URLSearchParams(location.search),app=document.getElementById('app');

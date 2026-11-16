@@ -1,5 +1,5 @@
 {
-  "version": "0.16.0",
+  "version": "0.16.1",
   "site": "app.afspraakboeken.be",
-  "release": "service-image-uploads-and-simpler-editor"
+  "release": "company-booking-and-lead-email-notifications"
 }

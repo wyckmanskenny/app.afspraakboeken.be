@@ -288,3 +288,14 @@ test('Oversized service pictures are rejected locally and removing a picture res
   form.querySelector('[data-image-remove]').click();assert.equal(form.elements.image.value,'');assert.equal(form.querySelector('[data-image-preview] img'),null);assert.ok(form.querySelector('.service-placeholder'));
  }finally{await ui.close();}
 });
+
+test('Company booking email links open the appointments overview after login',async()=>{
+ const ui=await setup(route=>route==='me'?result({csrf:'test',user:{id:'c'.repeat(32),role:'admin',name:'Owner',tenant_id:company.id}}):result({tenant:company,services:[service],bookings:[],notification_mail:{configured:true,pending:0,attention:0}}),'https://app.afspraakboeken.be/?view=bookings&tenant='+company.id);
+ try{await until(()=>ui.document.querySelector('[data-page=bookings].active'));assert.ok(ui.document.querySelector('.table-wrap'));}finally{await ui.close();}
+});
+test('Email settings show the company notification recipient and delivery problems',async()=>{
+ const ui=await setup(route=>route==='me'?result({csrf:'test',user:{id:'c'.repeat(32),role:'admin',name:'Owner',tenant_id:company.id}}):result({tenant:company,services:[service],bookings:[],notification_mail:{configured:true,pending:2,attention:1}}));
+ try{await until(()=>ui.document.querySelector('[data-page=emails]'));ui.document.querySelector('[data-page=emails]').click();
+ assert.ok(ui.document.body.textContent.includes('test@example.test'));assert.ok(ui.document.body.textContent.includes('2 meldingen'));assert.ok(ui.document.body.textContent.includes('verzending aandacht nodig'));assert.ok(ui.document.body.textContent.includes('naar je eindklanten zijn nog niet aangesloten'));
+ }finally{await ui.close();}
+});
