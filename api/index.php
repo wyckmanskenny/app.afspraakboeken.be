@@ -16,8 +16,8 @@ try {
         try{
             configuration();$ready=(int)query("SELECT COUNT(*) FROM ab_users WHERE role='superadmin'")->fetchColumn()>0;
             if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();}
-            respond(['ready'=>$ready,'version'=>'0.15.0','trial_available'=>$ready&&mail_configuration()!==null]);
-        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.15.0'],503);}
+            respond(['ready'=>$ready,'version'=>'0.15.1','trial_available'=>$ready&&mail_configuration()!==null]);
+        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.15.1'],503);}
     }
     configuration();
     if($method==='OPTIONS'&&$route==='contact'){origin_guard(true);respond([],204);}
@@ -51,7 +51,7 @@ try {
         // The fallback hash makes unknown accounts follow a password verification path too.
         $fallback='$2y$12$7RrV1Mg01rl3JTTz6OZMzuCdmQ4P7kPk9cdLRLfkV2eI9EJ0t/RXG';
         if(!password_verify($pw,$user['password_hash']??$fallback)||!$user||!$user['active'])fail(401,'E-mailadres of wachtwoord klopt niet.');
-        if($user['role']==='admin'&&!$user['tenant_active'])fail(403,'Je bedrijfsaccount is nog niet actief. Neem contact op met Wycked Media ®.');
+        if($user['role']==='admin'&&!$user['tenant_active'])fail(403,'Je bedrijfsaccount is nog niet actief. Neem contact op met Afspraakboeken.be.');
         if(!in_array($user['role'],['admin','superadmin'],true))fail(403,'Geen toegang.');
         $token=bin2hex(random_bytes(32));$csrf=bin2hex(random_bytes(32));
         query('INSERT INTO ab_sessions(token_hash,user_id,csrf,created_at,last_seen,expires_at) VALUES (?,?,?,UTC_TIMESTAMP(),UTC_TIMESTAMP(),DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR))',[hash('sha256',$token),$user['id'],$csrf]);
@@ -64,7 +64,7 @@ try {
         limit_rate('invite-ip',client_ip(),30,900);
         $result=transaction(function()use($route,$data,$token){
             $invite=row('SELECT i.*,u.email,u.name,u.tenant_id,u.active,t.name AS company,t.active AS tenant_active FROM ab_invites i JOIN ab_users u ON u.id=i.user_id JOIN ab_tenants t ON t.id=u.tenant_id WHERE i.token_hash=? FOR UPDATE',[hash('sha256',$token)]);
-            if(!$invite||$invite['used_at']||$invite['expires_at']<=gmdate('Y-m-d H:i:s')||!$invite['active'])fail(400,'Deze activatielink is ongeldig of verlopen. Vraag een nieuwe link aan Wycked Media ®.');
+            if(!$invite||$invite['used_at']||$invite['expires_at']<=gmdate('Y-m-d H:i:s')||!$invite['active'])fail(400,'Deze activatielink is ongeldig of verlopen. Vraag een nieuwe link aan Afspraakboeken.be.');
             if($route==='invite/check')return ['name'=>$invite['name'],'email'=>$invite['email'],'company'=>$invite['company']];
             query('UPDATE ab_users SET password_hash=? WHERE id=?',[hash_password(password($data)),$invite['user_id']]);
             query('UPDATE ab_invites SET used_at=UTC_TIMESTAMP() WHERE user_id=? AND used_at IS NULL',[$invite['user_id']]);

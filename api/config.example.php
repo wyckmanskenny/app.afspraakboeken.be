@@ -40,7 +40,7 @@ return [
         'username' => '',
         'password' => '',
         'from_email' => '',
-        'from_name' => 'Afspraakboeken.be · Wycked Media ®',
+        'from_name' => 'Afspraakboeken.be',
         'reply_to' => '',
     ],
 ];

@@ -33,8 +33,8 @@ function notifications(): array {
 }
 function lifecycle_mail(string $title,string $text,string $label,string $url): array {
     $esc=static fn(string $s):string=>htmlspecialchars($s,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
-    return ['subject'=>$title.' · Afspraakboeken.be','text'=>$text."\n\n$label: $url\n\nAfspraakboeken.be · Wycked Media ®",
-        'html'=>'<!doctype html><html lang="nl"><meta charset="utf-8"><body style="margin:0;background:#edf3f2;padding:32px 16px;font-family:Arial,sans-serif;color:#264653"><div style="max-width:540px;margin:auto;padding:32px;background:white;border-radius:16px"><strong>afspraakboeken.be</strong><h1 style="font-size:28px;line-height:1.2">'.$esc($title).'</h1><p style="font-size:15px;line-height:1.8">'.nl2br($esc($text)).'</p><p style="margin:28px 0"><a style="display:inline-block;padding:15px 22px;background:#264653;color:white;text-decoration:none;border-radius:9px" href="'.$esc($url).'">'.$esc($label).'</a></p><p style="font-size:12px;color:#607580">Afspraakboeken.be · Wycked Media ®</p></div></body></html>'];
+    return ['subject'=>$title.' · Afspraakboeken.be','text'=>$text."\n\n$label: $url\n\nAfspraakboeken.be",
+        'html'=>'<!doctype html><html lang="nl"><meta charset="utf-8"><body style="margin:0;background:#edf3f2;padding:32px 16px;font-family:Arial,sans-serif;color:#264653"><div style="max-width:540px;margin:auto;padding:32px;background:white;border-radius:16px"><strong>afspraakboeken.be</strong><h1 style="font-size:28px;line-height:1.2">'.$esc($title).'</h1><p style="font-size:15px;line-height:1.8">'.nl2br($esc($text)).'</p><p style="margin:28px 0"><a style="display:inline-block;padding:15px 22px;background:#264653;color:white;text-decoration:none;border-radius:9px" href="'.$esc($url).'">'.$esc($label).'</a></p><p style="font-size:12px;color:#607580">Afspraakboeken.be</p></div></body></html>'];
 }
 function trial_signup(array $data): array {
     if(text($data,'website',200)!=='')return ['message'=>'Controleer je e-mail om verder te gaan.'];

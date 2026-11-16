@@ -1,4 +1,4 @@
-import {esc,logo,fieldError,request,submit} from './ui.js?v=0.15.0';
+import {esc,logo,fieldError,request,submit} from './ui.js?v=0.15.1';
 const trial=location.hash.startsWith('#trial=');const token=location.hash.slice(trial?7:1);history.replaceState(null,'',location.pathname);
 const app=document.getElementById('app');
 async function start(){
@@ -8,7 +8,7 @@ async function start(){
   app.querySelector('form').onsubmit=event=>{event.preventDefault();submit(event.currentTarget,async data=>{
    if(data.password!==data.repeat)throw new Error('De wachtwoorden komen niet overeen.');
    const result=await request(trial?'trial/accept':'invite/accept',{token,password:data.password});
-   app.innerHTML=`<section class="panel">${logo()}<h1>${result.trial?'Je 14 gratis dagen zijn begonnen.':'Je wachtwoord staat klaar.'}</h1><p class="sub">${result.active?'Je kunt je nu aanmelden in jouw bedrijfsomgeving.':'Wycked Media ® activeert je bedrijfsaccount zodra alles is afgestemd. Je wachtwoord is alvast ingesteld.'}</p><a class="btn primary section-gap" href="./">Naar aanmelden</a></section>`;
+   app.innerHTML=`<section class="panel">${logo()}<h1>${result.trial?'Je 14 gratis dagen zijn begonnen.':'Je wachtwoord staat klaar.'}</h1><p class="sub">${result.active?'Je kunt je nu aanmelden in jouw bedrijfsomgeving.':'Afspraakboeken.be activeert je bedrijfsaccount zodra alles is afgestemd. Je wachtwoord is alvast ingesteld.'}</p><a class="btn primary section-gap" href="./">Naar aanmelden</a></section>`;
   });};
  }catch(e){app.innerHTML=`<section class="panel">${logo()}<h1>Deze link werkt niet meer.</h1><p class="sub">${esc(e.message)}</p><a class="btn section-gap" href="${trial?'./registreren/?mode=trial':'./registreren/'}">Vraag een nieuwe link</a></section>`;}
 }

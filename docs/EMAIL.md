@@ -22,7 +22,7 @@ Open op Hostinger je **bestaande** `public_html/api/private/config.php` (of je e
         'username' => 'VUL_JE_VOLLEDIGE_MAILBOXADRES_IN',
         'password' => 'VUL_HET_MAILBOXWACHTWOORD_IN',
         'from_email' => 'VUL_JE_AFZENDERADRES_IN',
-        'from_name' => 'Afspraakboeken.be · Wycked Media ®',
+        'from_name' => 'Afspraakboeken.be',
         'reply_to' => 'kenny@kdesign.be',
     ],
 ```

@@ -107,7 +107,7 @@ try:
     message=messages[-1]; html=message.get_body(('html',)).get_content(); plain=message.get_body(('plain',)).get_content()
     assert created['invite_url'] in html and created['invite_url'] in plain
     assert '<script>' not in html and '&lt;script&gt;' in html
-    assert 'Wycked Media ® activeert' in plain and str(message['From']).endswith('<mailer@example.test>')
+    assert 'Afspraakboeken.be activeert' in plain and str(message['From']).endswith('<mailer@example.test>')
     print('PASS real TLS SMTP, correct account recipient, HTML escaping and text alternative',flush=True)
 
     tenant=owner.call('workspace',tenant=created['tenant_id'])['tenant']

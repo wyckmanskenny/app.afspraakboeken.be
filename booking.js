@@ -1,5 +1,5 @@
-import {esc,money,dateLabel,icon,request,fieldError,submit,safeUrl} from './ui.js?v=0.15.0';
-import {TODAY,addDays,dayOf,brandVariables,epoch} from './core.js?v=0.15.0';
+import {esc,money,dateLabel,icon,request,fieldError,submit,safeUrl} from './ui.js?v=0.15.1';
+import {TODAY,addDays,dayOf,brandVariables,epoch} from './core.js?v=0.15.1';
 let tenant,services,step=1,service=null,date=null,time=null,month=TODAY().slice(0,7),times=[],fields={},loading=false,error='',confirmation=null,pending=false;
 let requestKey=crypto.randomUUID(),slotGeneration=0;
 const emitted=new Set(),params=new URLSearchParams(location.search),app=document.getElementById('app');
@@ -9,7 +9,7 @@ const steps=()=>isRequest()?(chooseService()?[[1,'Dienst'],[3,'Gegevens']]:[[3,'
 function currentService(){return services.find(s=>s.id===service);}
 function render(){
  const style=Object.entries(brandVariables(tenant.branding)).map(([key,value])=>`${key}:${value}`).join(';');
- app.innerHTML=`<main class="booking-page" style="${style}"><div class="booking-container"><header class="booking-company"><div class="avatar">${esc(tenant.name.slice(0,2).toUpperCase())}</div><div><h2>${esc(tenant.name)}</h2><small>${esc(tenant.location)}</small></div></header><section class="booking-panel"><div class="steps" aria-label="Boekingsstappen">${steps().map(([value,name],i)=>`<span class="${step===value?'active':''}" ${step===value?'aria-current="step"':''}><b>${step>value?'✓':i+1}</b>${name}</span>`).join('')}</div><div class="step-enter">${confirmation?success():step===1?serviceStep():step===2?timeStep():detailsStep()}</div></section><footer class="booking-footer">Met <a href="https://afspraakboeken.be/" target="_blank" rel="noopener">Afspraakboeken.be</a> · Wycked Media ®</footer></div></main>`;
+ app.innerHTML=`<main class="booking-page" style="${style}"><div class="booking-container"><header class="booking-company"><div class="avatar">${esc(tenant.name.slice(0,2).toUpperCase())}</div><div><h2>${esc(tenant.name)}</h2><small>${esc(tenant.location)}</small></div></header><section class="booking-panel"><div class="steps" aria-label="Boekingsstappen">${steps().map(([value,name],i)=>`<span class="${step===value?'active':''}" ${step===value?'aria-current="step"':''}><b>${step>value?'✓':i+1}</b>${name}</span>`).join('')}</div><div class="step-enter">${confirmation?success():step===1?serviceStep():step===2?timeStep():detailsStep()}</div></section><footer class="booking-footer">Met <a href="https://afspraakboeken.be/" target="_blank" rel="noopener">Afspraakboeken.be</a></footer></div></main>`;
 }
 function serviceStep(){return `<h1 tabindex="-1" id="step-title">Waar kunnen we je mee helpen?</h1><p class="sub">${isRequest()?'Kies een dienst en vertel ons wat je nodig hebt.':'Kies een dienst. Daarna zie je meteen de kalender.'}</p>${services.map(s=>`<article class="book-service"><button type="button" class="service-pick" data-book-action="service" data-id="${s.id}"><span><strong>${esc(s.name)}</strong><small>${s.duration} minuten${tenant.features.prices?' · '+money(s.price):''}</small></span></button><details><summary>Meer over deze dienst</summary><p>${esc(s.description)}</p>${safeUrl(s.image)?`<img src="${esc(s.image)}" alt="" loading="lazy">`:''}${safeUrl(s.video)?`<p><a href="${esc(s.video)}" target="_blank" rel="noopener">Bekijk de video </a></p>`:''}</details></article>`).join('')||'<div class="notice section-gap">Er zijn momenteel geen boekbare diensten.</div>'}`;}
 function summary(){const s=currentService();if(!s)return '';return `<div class="booking-summary"><span>${esc(s.name)} · ${s.duration} min${date&&time?`<br>${dateLabel(date)} om ${time}`:''}</span>${tenant.features.prices?`<strong>${money(s.price)}</strong>`:''}</div>`;}
@@ -31,7 +31,7 @@ function downloadICS(){
  const s=currentService(),start=new Date(epoch(date,time)),end=new Date(start.getTime()+s.duration*60000);
  const stamp=d=>d.toISOString().replace(/[-:]/g,'').replace(/\.\d{3}/,'');
  const clean=value=>String(value).replace(/\\/g,'\\\\').replace(/\n/g,'\\n').replace(/,/g,'\\,').replace(/;/g,'\\;').replace(/\r/g,'');
- const data=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Wycked Media ®//Afspraakboeken//NL','BEGIN:VEVENT','UID:'+confirmation.id+'@app.afspraakboeken.be','DTSTAMP:'+stamp(new Date()),'DTSTART:'+stamp(start),'DTEND:'+stamp(end),'SUMMARY:'+clean(s.name+' · '+tenant.name),'LOCATION:'+clean(tenant.location),'END:VEVENT','END:VCALENDAR',''].join('\r\n');
+ const data=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Afspraakboeken.be//Afspraakboeken//NL','BEGIN:VEVENT','UID:'+confirmation.id+'@app.afspraakboeken.be','DTSTAMP:'+stamp(new Date()),'DTSTART:'+stamp(start),'DTEND:'+stamp(end),'SUMMARY:'+clean(s.name+' · '+tenant.name),'LOCATION:'+clean(tenant.location),'END:VEVENT','END:VCALENDAR',''].join('\r\n');
  const url=URL.createObjectURL(new Blob([data],{type:'text/calendar;charset=utf-8'})),link=document.createElement('a');link.href=url;link.download='afspraak.ics';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 export async function startBooking(){
