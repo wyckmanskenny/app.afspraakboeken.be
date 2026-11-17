@@ -249,7 +249,7 @@ test('Calendar status and explicit calendar selection stay inside the company wo
  let selected=false;
  const ui=await setup(route=>route==='me'?result({csrf:'test',user:{id:'c'.repeat(32),role:'admin',name:'Owner',tenant_id:company.id}}):route==='calendar/status'?result({configured:true,connection:{calendar_id:selected?'calendar-id':null,calendar_name:'Work'},pending:0,cron:null}):route==='calendar/list'?result({calendars:[{id:'calendar-id',name:'Work'}]}):route==='calendar/select'?(selected=true,result({ok:true})):result({tenant:company,services:[service],bookings:[],booking_limit:2000}),'https://app.afspraakboeken.be/?view=calendar');
  try{await until(()=>ui.document.querySelector('[data-gcal-form=select] option[value="calendar-id"]'));
- const form=ui.document.querySelector('[data-gcal-form=select]');form.querySelector('select').value='calendar-id';form.querySelector('[name=confirmed]').checked=true;
+ const form=ui.document.querySelector('[data-gcal-form=select]');form.querySelector('select').value='calendar-id';assert.equal(form.querySelector('[name=confirmed]'),null);assert.equal(ui.document.querySelector('[data-gcal=connect]'),null);
  form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.document.querySelector('[data-gcal=sync]'));
  const saved=ui.calls.find(c=>c.route==='calendar/select').data;assert.equal(saved.tenant,company.id);assert.equal(saved.confirmed,true);assert.equal(saved.calendar,'calendar-id');
  assert.ok(ui.document.querySelector('[data-gcal-form=disconnect] input[required]'));assert.equal(ui.document.querySelector('[data-page=tenants]'),null);
@@ -384,4 +384,15 @@ test('Widget display autosave restores the previous mode and code on failure',as
  const check=ui.document.getElementById('widget-show-button');check.checked=false;check.dispatchEvent(new ui.window.Event('change',{bubbles:true}));
  await until(()=>ui.document.getElementById('widget-save-status').textContent.includes('Niet opgeslagen'));
  assert.equal(check.checked,true);assert.equal(check.disabled,false);assert.equal(ui.document.getElementById('widget-mode').value,'popup');assert.match(ui.document.getElementById('widget-code').value,/data-mode="popup"/);await ui.close();
+});
+
+
+test('Calendar choice requires a deliberate selection when multiple calendars exist',async()=>{
+ const ui=await setup(route=>route==='me'?result({csrf:'test',user:{id:'c'.repeat(32),role:'admin',name:'Owner',tenant_id:company.id}}):route==='calendar/status'?result({configured:true,connection:{calendar_id:null},pending:0}):route==='calendar/list'?result({calendars:[{id:'one',name:'Werk'},{id:'two',name:'Privé'}]}):result({tenant:company,services:[service],bookings:[],booking_limit:2000}),'https://app.afspraakboeken.be/?view=calendar');
+ try{await until(()=>ui.document.querySelector('option[value="two"]'));const form=ui.document.querySelector('[data-gcal-form=select]'),select=form.querySelector('select');assert.equal(select.value,'');assert.equal(form.querySelector('[type=submit]').disabled,true);assert.equal(ui.calls.some(c=>c.route==='calendar/select'),false);select.value='one';select.dispatchEvent(new ui.window.Event('change',{bubbles:true}));assert.equal(form.querySelector('[type=submit]').disabled,false);assert.equal(ui.document.querySelector('.google-calendar-panel details').open,false);}finally{await ui.close();}
+});
+
+test('Calendar list failure keeps linking disabled and offers a retry',async()=>{
+ const ui=await setup(route=>route==='me'?result({csrf:'test',user:{id:'c'.repeat(32),role:'admin',name:'Owner',tenant_id:company.id}}):route==='calendar/status'?result({configured:true,connection:{calendar_id:null},pending:0}):route==='calendar/list'?Promise.reject(new Error('offline')):result({tenant:company,services:[service],bookings:[],booking_limit:2000}),'https://app.afspraakboeken.be/?view=calendar');
+ try{await until(()=>ui.document.querySelector('[data-gcal=list]'));const form=ui.document.querySelector('[data-gcal-form=select]');assert.equal(form.querySelector('[type=submit]').disabled,true);assert.equal(form.querySelector('select').disabled,true);assert.match(form.textContent,/niet worden opgehaald/);assert.equal(ui.calls.some(c=>c.route==='calendar/select'),false);}finally{await ui.close();}
 });

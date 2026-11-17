@@ -1,6 +1,6 @@
 import {fieldsPanel,fieldsFromForm,questionRow} from './form-fields-ui.js?v=0.17.1';
 import {mountServiceImage} from './service-image-ui.js?v=0.16.1';
-import {mountGoogleCalendar} from './calendar-ui.js?v=0.16.1';
+import {mountGoogleCalendar} from './calendar-ui.js?v=0.17.3';
 import {mountPartnerAdmin} from './partners-admin.js?v=0.16.1';
 import {mountCRM} from './crm-ui.js?v=0.17.1';
 import {manualLeadForm,columnsForm,columnRow,intake,intakePanel,flowLabel,crmBoard,leadDetail as leadDetailContent,scheduleForm} from './lead-ui.js?v=0.17.1';
