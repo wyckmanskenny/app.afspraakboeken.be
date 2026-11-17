@@ -11,6 +11,7 @@ require __DIR__.'/partners.php';
 require __DIR__.'/calendar.php';
 require __DIR__.'/media.php';
 require __DIR__.'/company-notifications.php';
+require __DIR__.'/board-notifications.php';
 
 try {
     $route=trim($_GET['route']??'health','/');$method=$_SERVER['REQUEST_METHOD'];
@@ -18,9 +19,9 @@ try {
         header('Access-Control-Allow-Origin: *');
         try{
             configuration();$ready=(int)query("SELECT COUNT(*) FROM ab_users WHERE role='superadmin'")->fetchColumn()>0;
-            if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();ensure_form_fields_schema();}
-            respond(['ready'=>$ready,'version'=>'0.17.4','trial_available'=>$ready&&mail_configuration()!==null]);
-        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.17.4'],503);}
+            if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();ensure_form_fields_schema();ensure_board_notifications_schema();}
+            respond(['ready'=>$ready,'version'=>'0.17.5','trial_available'=>$ready&&mail_configuration()!==null]);
+        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.17.5'],503);}
     }
     configuration();
     if($method==='OPTIONS'&&$route==='contact'){origin_guard(true);respond([],204);}
@@ -40,7 +41,7 @@ try {
         }finally{query('SELECT RELEASE_LOCK(?)',[$lock]);}
         respond(['message'=>'Je superadminaccount is aangemaakt. Je kunt nu aanmelden.'],201);
     }
-    ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();ensure_form_fields_schema();
+    ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();ensure_form_fields_schema();ensure_board_notifications_schema();
     if($route==='media/image'&&$method==='GET')serve_service_image($_GET);
     if($route==='calendar/callback'&&$method==='GET'){$destination=google_callback(identity(),$_GET);header('Location: '.$destination,true,303);exit;}
     if($route==='public/partner'&&$method==='GET'){$p=partner_code($_GET['code']??'');if(!$p)fail(404,'Partner niet gevonden.');respond(['name'=>$p['name']]);}
@@ -206,11 +207,13 @@ try {
         $result['mail']=send_welcome($user['id'],$result['tenant_id'],$email,$adminName,$name,$result['invite_url'],false);
         respond($result,201);
     }
+    if($route==='board/notifications'&&$method==='GET'){$t=tenant_access($user,$_GET['tenant']??$user['tenant_id']);respond(['unread'=>board_unread($user,$t)]);}
+    if($route==='board/seen'&&$method==='POST')respond(board_seen($user,body()));
     if($route==='workspace'&&$method==='GET'){
         $t=tenant_access($user,$_GET['tenant']??$user['tenant_id']);
         $services=query('SELECT * FROM ab_services WHERE tenant_id=? ORDER BY name',[$t['id']])->fetchAll();
         $bookings=query('SELECT * FROM ab_bookings WHERE tenant_id=? ORDER BY booking_date DESC,booking_time DESC LIMIT 2000',[$t['id']])->fetchAll();
-        respond(['tenant'=>tenant_view($t,$user['role']==='superadmin'),'services'=>array_map('service_view',$services),'bookings'=>array_map('booking_view',$bookings),'booking_limit'=>2000,'notification_mail'=>company_notification_status($t['id']),'leads'=>array_map('lead_view',query('SELECT * FROM ab_leads WHERE tenant_id=? ORDER BY created_at DESC LIMIT 2000',[$t['id']])->fetchAll()),'lead_limit'=>2000]);
+        respond(['tenant'=>tenant_view($t,$user['role']==='superadmin'),'services'=>array_map('service_view',$services),'bookings'=>array_map('booking_view',$bookings),'booking_limit'=>2000,'board_unread'=>board_unread($user,$t),'notification_mail'=>company_notification_status($t['id']),'leads'=>array_map('lead_view',query('SELECT * FROM ab_leads WHERE tenant_id=? ORDER BY created_at DESC LIMIT 2000',[$t['id']])->fetchAll()),'lead_limit'=>2000]);
     }
     if($route==='tenant/save'&&$method==='POST'){
         $data=body();$result=transaction(function()use($user,$data){

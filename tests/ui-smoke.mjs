@@ -401,3 +401,10 @@ test('Inline contact form retains company branding without an unnecessary step i
  const ui=await setup(route=>route==='public/catalog'?result({tenant:{...company,branding:brand,features:company.settings.features,location:'Op afspraak',intake:{mode:'request',serviceSelection:false}},services:[]}):result({}), 'https://app.afspraakboeken.be/?mode=book&embed=inline&tenant='+company.id);
  try{await until(()=>ui.document.getElementById('public-booking-form'));assert.ok(ui.document.documentElement.classList.contains('booking-embed-document'));const page=ui.document.querySelector('.booking-inline.booking-contact-only');assert.ok(page);assert.equal(page.style.getPropertyValue('--accent'),brand.primary);assert.ok(ui.document.querySelector('input[name=email][required]'));assert.equal(ui.calls.some(c=>c.route==='public/lead'),false);}finally{await ui.close();}
 });
+
+
+test('Company request badge clears after opening the board and reappears for new arrivals',async()=>{
+ let unread=2;
+ const ui=await setup(route=>route==='me'?result({csrf:'test',user:{id:'c'.repeat(32),role:'admin',name:'Owner',tenant_id:company.id}}):route==='board/seen'?(unread=0,result({unread:0})):route==='board/notifications'?result({unread}):result({tenant:company,services:[service],bookings:[],leads:[],board_unread:unread}));
+ try{await until(()=>ui.document.querySelector('[data-page=crm] .nav-count'));let badge=ui.document.querySelector('[data-page=crm] .nav-count');assert.equal(badge.textContent,'2');assert.equal(badge.hidden,false);assert.match(badge.parentElement.textContent,/Aanvragen/);ui.document.querySelector('[data-page=crm]').click();await until(()=>ui.calls.some(c=>c.route==='board/seen'));await until(()=>ui.document.querySelector('[data-page=crm] .nav-count').hidden);unread=1;ui.window.dispatchEvent(new ui.window.Event('focus'));await until(()=>ui.document.querySelector('[data-page=crm] .nav-count').textContent==='1');assert.equal(ui.document.querySelector('[data-page=crm] .nav-count').hidden,false);}finally{await ui.close();}
+});

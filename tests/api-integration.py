@@ -119,6 +119,20 @@ anonymous.call('public/lead',lead,expected=422)
 anonymous.call('public/lead',{**lead,'notes':'Info','answers':{'kind':'Invalid'}},expected=422)
 sent=anonymous.call('public/lead',{**lead,'notes':'Info','answers':{'kind':'Dak'}},expected=201)
 assert anonymous.call('public/lead',{**lead,'notes':'Info','answers':{'kind':'Dak'}},expected=201)['replayed'] is True
+assert a.call('board/notifications')['unread']==1
+assert a.call('workspace')['board_unread']==1
+b.call('board/notifications',tenant=ta['tenant_id'],expected=404)
+b.call('board/seen',{'tenant':ta['tenant_id'],'leads':[sent['id']]},expected=404)
+assert b.call('board/seen',{'tenant':tb['tenant_id'],'leads':[sent['id']]})['unread']==0
+# Another arrival between loading the board and acknowledging it must stay unread.
+late=anonymous.call('public/lead',{**lead,'request_key':secrets.token_hex(16),'notes':'Later','answers':{'kind':'Dak'}},expected=201)
+assert a.call('board/seen',{'tenant':ta['tenant_id'],'leads':[sent['id']]})['unread']==1
+assert owner.call('board/notifications',tenant=ta['tenant_id'])['unread']==2
+assert a.call('board/seen',{'tenant':ta['tenant_id'],'leads':[sent['id'],late['id']]})['unread']==0
+a.login('a@example.test')
+assert a.call('board/notifications')['unread']==0
+assert next(x for x in a.call('workspace')['leads'] if x['id']==sent['id'])['stage']=='new'
+ok('Board read status persists per user, isolates tenants and preserves concurrent arrivals and stages')
 record=next(x for x in a.call('workspace')['leads'] if x['id']==sent['id'])
 assert record['phone']=='' and 'Type werken: Dak' in record['notes']
 form_settings({'formFields':{'custom':[{**question,'label':'Nieuwe naam'}]}})
