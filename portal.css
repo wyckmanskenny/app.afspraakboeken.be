@@ -78,3 +78,5 @@ html.booking-embed-document,html.booking-embed-document body{background:transpar
 .booking-inline .booking-panel .btn.primary{min-height:46px;font-size:14px;padding:12px 18px}
 .booking-inline .booking-footer{margin-top:14px}
 @media(max-width:420px){.booking-page.booking-inline{padding:6px}.booking-inline .booking-panel{padding:20px 16px;border-radius:13px}.booking-inline .booking-panel h1{font-size:22px}.booking-inline .booking-company{padding-bottom:12px}.booking-inline .steps{gap:8px}}
+
+.booking-detail-actions{display:grid;gap:12px}.booking-detail-actions>.field-help{margin-top:-5px}.booking-secondary-action{margin-top:8px;padding-top:18px;border-top:1px solid var(--line)}.booking-secondary-action .booking-cancel-link{background:transparent;border-color:var(--line);color:var(--muted);font-size:12px;font-weight:500;min-height:40px}.booking-secondary-action .booking-cancel-link:hover{background:#f3f6f6;color:var(--ink)}
