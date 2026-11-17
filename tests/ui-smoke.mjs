@@ -333,8 +333,8 @@ test('Widget visibility setting saves inline mode and restores it when reopening
  });
  await until(()=>ui.document.querySelector('[data-page="widget"]'));ui.document.querySelector('[data-page="widget"]').click();
  const check=ui.document.getElementById('widget-show-button');assert.equal(check.checked,true);check.checked=false;check.dispatchEvent(new ui.window.Event('change',{bubbles:true}));
- assert.equal(ui.document.getElementById('widget-button-options').hidden,true);assert.match(ui.document.getElementById('widget-code').value,/data-mode="inline"/);
- ui.document.getElementById('widget-form').dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));
+ assert.equal(ui.document.getElementById('widget-button-options').hidden,true);await until(()=>ui.document.getElementById('widget-save-status').textContent==='Opgeslagen');assert.match(ui.document.getElementById('widget-code').value,/data-mode="inline"/);
+ assert.equal(ui.document.querySelector('#widget-form [type=submit]'),null);
  await until(()=>saved&&ui.document.getElementById('widget-show-button').checked===false);
  assert.equal(saved.settings.widgetMode,'inline');assert.match(ui.document.getElementById('widget-code').value,/data-mode="inline"/);await ui.close();
 });
@@ -375,4 +375,13 @@ test('CRM Plus customer can save a required custom question with basic field set
  ui.document.querySelector('[data-question=label]').value='Type werken';ui.document.querySelector('[data-question=required]').checked=true;
  const form=ui.document.getElementById('form-fields-form');form.querySelector('[name=phone]').value='optional';form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>saved);
  assert.equal(saved.settings.formFields.basic.phone,'optional');assert.equal(saved.settings.formFields.custom[0].label,'Type werken');assert.equal(saved.settings.formFields.custom[0].required,true);await ui.close();
+});
+
+test('Widget display autosave restores the previous mode and code on failure',async()=>{
+ const tenant=structuredClone(company);tenant.settings.widgetMode='popup';
+ const ui=await setup(route=>route==='me'?result({csrf:'test',user:{role:'admin',name:'Owner',tenant_id:tenant.id}}):route==='tenant/save'?result({error:'Opslag mislukt'},503):result({tenant,services:[service],bookings:[]}));
+ await until(()=>ui.document.querySelector('[data-page=widget]'));ui.document.querySelector('[data-page=widget]').click();
+ const check=ui.document.getElementById('widget-show-button');check.checked=false;check.dispatchEvent(new ui.window.Event('change',{bubbles:true}));
+ await until(()=>ui.document.getElementById('widget-save-status').textContent.includes('Niet opgeslagen'));
+ assert.equal(check.checked,true);assert.equal(check.disabled,false);assert.equal(ui.document.getElementById('widget-mode').value,'popup');assert.match(ui.document.getElementById('widget-code').value,/data-mode="popup"/);await ui.close();
 });
