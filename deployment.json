@@ -1,5 +1,5 @@
 {
-  "version": "0.16.2",
+  "version": "0.16.3",
   "site": "app.afspraakboeken.be",
-  "release": "calendar-availability-and-favicon"
+  "release": "linked-widget-logo-with-utm"
 }
