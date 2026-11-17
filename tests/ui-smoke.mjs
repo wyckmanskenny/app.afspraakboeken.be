@@ -57,7 +57,7 @@ test('Choosing a service goes straight to the calendar; confirmation waits for t
  assert.equal(ui.document.querySelector('[data-book-action=month-next]').textContent,'Volgende');
  let dayButton=ui.document.querySelector(`[data-date="${day}"]`);
  if(!dayButton){ui.document.querySelector('[data-book-action="month-next"]').click();dayButton=ui.document.querySelector(`[data-date="${day}"]`);}
- dayButton.click();await until(()=>ui.document.querySelector('[data-book-action="time"]'));ui.document.querySelector('[data-book-action="time"]').click();
+ await until(()=>!ui.document.querySelector(`[data-date="${day}"]`).disabled);dayButton=ui.document.querySelector(`[data-date="${day}"]`);dayButton.click();await until(()=>ui.document.querySelector('[data-book-action="time"]'));ui.document.querySelector('[data-book-action="time"]').click();
  const form=ui.document.getElementById('public-booking-form');for(const [name,value] of Object.entries({name:'Test Customer',email:'person@example.test',phone:'0400000000'}))form.querySelector(`[name="${name}"]`).value=value;
  form.querySelector('[name=marketing_consent]').checked=true;
  assert.ok(!ui.document.body.textContent.includes('Helemaal geregeld'));
@@ -298,4 +298,17 @@ test('Email settings show the company notification recipient and delivery proble
  try{await until(()=>ui.document.querySelector('[data-page=emails]'));ui.document.querySelector('[data-page=emails]').click();
  assert.ok(ui.document.body.textContent.includes('test@example.test'));assert.ok(ui.document.body.textContent.includes('2 meldingen'));assert.ok(ui.document.body.textContent.includes('verzending aandacht nodig'));assert.ok(ui.document.body.textContent.includes('naar je eindklanten zijn nog niet aangesloten'));
  }finally{await ui.close();}
+});
+
+test('Calendar marks unavailable days before selection and keeps available days bookable',async()=>{
+ const day=new Date(Date.now()+3*86400000).toISOString().slice(0,10);
+ const ui=await setup((route,data,params)=>route==='public/catalog'?result({tenant:{...company,branding:brand,features:company.settings.features,location:'Op afspraak'},services:[service]}):route==='public/month'?result({days:{[day]:false}}):result({times:['10:00']}),'https://app.afspraakboeken.be/?mode=book&tenant='+company.id);
+ await until(()=>ui.document.querySelector('[data-book-action="service"]'));
+ ui.document.querySelector('[data-book-action="service"]').click();
+ if(!ui.document.querySelector(`[data-date="${day}"]`))ui.document.querySelector('[data-book-action="month-next"]').click();
+ await until(()=>ui.document.querySelector(`[data-date="${day}"]`).classList.contains('unavailable'));
+ const blocked=ui.document.querySelector(`[data-date="${day}"]`);
+ assert.equal(blocked.disabled,true);assert.match(blocked.getAttribute('aria-label'),/niet beschikbaar/);
+ blocked.click();assert.equal(ui.calls.filter(c=>c.route==='public/slots').length,0);
+ assert.match(ui.document.body.textContent,/Lichtgrijs: niet beschikbaar/);await ui.close();
 });

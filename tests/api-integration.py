@@ -141,6 +141,19 @@ assert 'email' not in catalog['tenant'] and 'subscription' not in catalog['tenan
 assert len(catalog['services']) == 1
 slots=anonymous.call('public/slots', tenant=ta['tenant_id'], service=sa, date=tomorrow)['times']
 assert slots[0]=='09:00' and slots[-1]=='17:00'
+month=anonymous.call('public/month',tenant=ta['tenant_id'],service=sa,month=tomorrow[:7])
+assert month['days'][tomorrow] is True
+assert all(isinstance(v,bool) for v in month['days'].values())
+anonymous.call('public/month',tenant=ta['tenant_id'],service=sa,month='2026-99',expected=422)
+anonymous.call('public/month',tenant=ta['tenant_id'],service='f'*32,month=tomorrow[:7],expected=404)
+revision=a.call('workspace')['tenant']['revision']
+a.call('tenant/save',{'tenant':ta['tenant_id'],'revision':revision,'settings':{'blocks':[tomorrow]}})
+assert anonymous.call('public/month',tenant=ta['tenant_id'],service=sa,month=tomorrow[:7])['days'][tomorrow] is False
+assert anonymous.call('public/slots',tenant=ta['tenant_id'],service=sa,date=tomorrow)['times']==[]
+revision=a.call('workspace')['tenant']['revision']
+a.call('tenant/save',{'tenant':ta['tenant_id'],'revision':revision,'settings':{'blocks':[]}})
+assert anonymous.call('public/month',tenant=ta['tenant_id'],service=sa,month=tomorrow[:7])['days'][tomorrow] is True
+ok('Monthly availability reflects blocking and reopening; service scope and month validation hold')
 booking={'tenant':ta['tenant_id'],'service':sa,'date':tomorrow,'time':'09:00','name':'Test Customer','email':'customer@example.test','phone':'0400000000','marketing_consent':False,'source':'facebook','campaign':'must-not-be-stored'}
 key=secrets.token_hex(16)
 first=anonymous.call('public/book', {**booking,'request_key':key}, expected=201)

@@ -18,8 +18,8 @@ try {
         try{
             configuration();$ready=(int)query("SELECT COUNT(*) FROM ab_users WHERE role='superadmin'")->fetchColumn()>0;
             if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();}
-            respond(['ready'=>$ready,'version'=>'0.16.1','trial_available'=>$ready&&mail_configuration()!==null]);
-        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.16.1'],503);}
+            respond(['ready'=>$ready,'version'=>'0.16.2','trial_available'=>$ready&&mail_configuration()!==null]);
+        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.16.2'],503);}
     }
     configuration();
     if($method==='OPTIONS'&&$route==='contact'){origin_guard(true);respond([],204);}
@@ -95,6 +95,18 @@ try {
         $settings=decoded($t['settings_json']);$services=array_map('service_view',query('SELECT * FROM ab_services WHERE tenant_id=? AND active=1 ORDER BY name',[$id])->fetchAll());
         foreach($services as &$s){unset($s['revision']);if(!$settings['features']['prices'])unset($s['price']);if(!$settings['features']['media']){$s['image']='';$s['video']='';}}unset($s);
         respond(['tenant'=>['id'=>$t['id'],'name'=>$t['name'],'location'=>$settings['location'],'branding'=>$settings['branding'],'features'=>$settings['features'],'intake'=>intake_settings($settings)],'services'=>(intake_settings($settings)['mode']==='request'&&!intake_settings($settings)['serviceSelection'])?[]:$services]);
+    }
+    if($route==='public/month'&&$method==='GET'){
+        $id=identifier($_GET['tenant']??'');$service=identifier($_GET['service']??'');$month=text($_GET,'month',7,true);
+        if(!preg_match('/^\d{4}-\d{2}$/D',$month)||!valid_date($month.'-01'))fail(422,'Kies een geldige maand.');
+        $now=new DateTimeImmutable('now',new DateTimeZone('Europe/Brussels'));
+        if($month<$now->format('Y-m')||$month>$now->modify('+60 days')->format('Y-m'))fail(422,'Kies een maand binnen de boekingsperiode.');
+        $t=row('SELECT * FROM ab_tenants WHERE id=? AND active=1',[$id]);$s=row('SELECT * FROM ab_services WHERE id=? AND tenant_id=? AND active=1',[$service,$id]);
+        if(!$t||!$s||trial_expired($id))fail(404,'Deze dienst is niet beschikbaar.');
+        if(intake_settings(decoded($t['settings_json']))['mode']!=='booking')fail(409,'De werkwijze is gewijzigd. Herlaad de pagina om een aanvraag te sturen.');
+        $days=[];$first=new DateTimeImmutable($month.'-01');
+        for($i=0;$i<(int)$first->format('t');$i++){$day=$first->modify('+'.$i.' days')->format('Y-m-d');$days[$day]=count(slots($t,$s,$day))>0;}
+        respond(['month'=>$month,'days'=>$days]);
     }
     if($route==='public/slots'&&$method==='GET'){
         $id=identifier($_GET['tenant']??'');$service=identifier($_GET['service']??'');$date=text($_GET,'date',10,true);
