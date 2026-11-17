@@ -103,6 +103,34 @@ a.call('tenant/save',{'tenant':ta['tenant_id'],'revision':revision,'settings':{'
 a.call('tenant/save',{'tenant':ta['tenant_id'],'revision':revision,'settings':{'widgetMode':'drawer'}})
 ok('Widget display mode persists per account and rejects invalid modes')
 
+# Configurable fields are enforced on the server, including premium gating.
+def form_settings(settings,client=a):
+    rev=client.call('workspace',tenant=ta['tenant_id'])['tenant']['revision']
+    return client.call('tenant/save',{'tenant':ta['tenant_id'],'revision':rev,'settings':settings})
+rev=a.call('workspace')['tenant']['revision']
+a.call('tenant/save',{'tenant':ta['tenant_id'],'revision':rev,'settings':{'formFields':{'custom':[]}}},expected=403)
+form_settings({'features':{'crmPlus':True}},owner)
+question={'id':'kind','label':'Type werken','type':'select','required':True,'options':['Dak','Gevel']}
+form_settings({'intake':{'mode':'request','serviceSelection':False},'formFields':{'basic':{'phone':'hidden','address':'optional','notes':'required'},'custom':[question]}})
+cat=anonymous.call('public/catalog',tenant=ta['tenant_id'])['tenant']['formFields']
+assert cat['basic']['phone']=='hidden' and cat['custom'][0]['id']=='kind'
+lead={'tenant':ta['tenant_id'],'name':'Form Test','email':'forms@example.test','phone':'must not persist','request_key':secrets.token_hex(16)}
+anonymous.call('public/lead',lead,expected=422)
+anonymous.call('public/lead',{**lead,'notes':'Info','answers':{'kind':'Invalid'}},expected=422)
+sent=anonymous.call('public/lead',{**lead,'notes':'Info','answers':{'kind':'Dak'}},expected=201)
+assert anonymous.call('public/lead',{**lead,'notes':'Info','answers':{'kind':'Dak'}},expected=201)['replayed'] is True
+record=next(x for x in a.call('workspace')['leads'] if x['id']==sent['id'])
+assert record['phone']=='' and 'Type werken: Dak' in record['notes']
+form_settings({'formFields':{'custom':[{**question,'label':'Nieuwe naam'}]}})
+export=lambda client:client.opener.open(BASE+'/api/index.php?route=crm/export&kind=answers').read().decode('utf-8-sig')
+assert 'Type werken' in export(a) and 'Dak' in export(a) and 'Type werken' not in export(b)
+# Downgrading hides questions; old snapshots and CSV remain available.
+form_settings({'features':{'crmPlus':False}},owner)
+assert anonymous.call('public/catalog',tenant=ta['tenant_id'])['tenant']['formFields']['custom']==[]
+assert 'Type werken' in export(a)
+form_settings({'intake':{'mode':'booking','serviceSelection':True},'formFields':{'basic':{'phone':'required','address':'hidden','notes':'optional'}}})
+ok('Required fields, hidden values, premium gating, answer snapshots, replay and tenant-scoped export hold')
+
 service = {'name':'Advice','category':'Test','description':'A real test appointment','duration':45,'buffer':15,'price':85,'active':True,'image':'','video':''}
 sa=a.call('service/save', {**service,'tenant':ta['tenant_id']})['id']
 sb=b.call('service/save', {**service,'tenant':tb['tenant_id']})['id']

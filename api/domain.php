@@ -21,6 +21,7 @@ function time_minutes(string $value): int {
 function clean_settings(array $data, array $previous, bool $agency): array {
     $previous['features']['crmPlus']=$previous['features']['crmPlus']??false;
     $out=$previous;
+    if(isset($data['formFields'])){if(!is_array($data['formFields']))fail(422,'Controleer de formuliervelden.');$out['formFields']=clean_form_fields($data['formFields'],$previous);}
     if(array_key_exists('widgetMode',$data)){if(!is_string($data['widgetMode'])||!in_array($data['widgetMode'],['drawer','popup','inline'],true))fail(422,'Kies een geldige widgetweergave.');$out['widgetMode']=$data['widgetMode'];}
     if(isset($data['intake'])){
         $intake=$data['intake'];

@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require __DIR__.'/bootstrap.php';
 require __DIR__.'/domain.php';
+require __DIR__.'/form-fields.php';
 require __DIR__.'/mailer.php';
 require __DIR__.'/lifecycle.php';
 require __DIR__.'/leads.php';
@@ -17,9 +18,9 @@ try {
         header('Access-Control-Allow-Origin: *');
         try{
             configuration();$ready=(int)query("SELECT COUNT(*) FROM ab_users WHERE role='superadmin'")->fetchColumn()>0;
-            if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();}
-            respond(['ready'=>$ready,'version'=>'0.16.5','trial_available'=>$ready&&mail_configuration()!==null]);
-        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.16.5'],503);}
+            if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();ensure_form_fields_schema();}
+            respond(['ready'=>$ready,'version'=>'0.17.0','trial_available'=>$ready&&mail_configuration()!==null]);
+        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.17.0'],503);}
     }
     configuration();
     if($method==='OPTIONS'&&$route==='contact'){origin_guard(true);respond([],204);}
@@ -39,7 +40,7 @@ try {
         }finally{query('SELECT RELEASE_LOCK(?)',[$lock]);}
         respond(['message'=>'Je superadminaccount is aangemaakt. Je kunt nu aanmelden.'],201);
     }
-    ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();
+    ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();ensure_form_fields_schema();
     if($route==='media/image'&&$method==='GET')serve_service_image($_GET);
     if($route==='calendar/callback'&&$method==='GET'){$destination=google_callback(identity(),$_GET);header('Location: '.$destination,true,303);exit;}
     if($route==='public/partner'&&$method==='GET'){$p=partner_code($_GET['code']??'');if(!$p)fail(404,'Partner niet gevonden.');respond(['name'=>$p['name']]);}
@@ -94,7 +95,7 @@ try {
         if(!$t||trial_expired($id))fail(404,'Deze boekingspagina is momenteel niet beschikbaar.');
         $settings=decoded($t['settings_json']);$services=array_map('service_view',query('SELECT * FROM ab_services WHERE tenant_id=? AND active=1 ORDER BY name',[$id])->fetchAll());
         foreach($services as &$s){unset($s['revision']);if(!$settings['features']['prices'])unset($s['price']);if(!$settings['features']['media']){$s['image']='';$s['video']='';}}unset($s);
-        respond(['tenant'=>['id'=>$t['id'],'name'=>$t['name'],'location'=>$settings['location'],'branding'=>$settings['branding'],'features'=>$settings['features'],'intake'=>intake_settings($settings)],'services'=>(intake_settings($settings)['mode']==='request'&&!intake_settings($settings)['serviceSelection'])?[]:$services]);
+        respond(['tenant'=>['id'=>$t['id'],'name'=>$t['name'],'location'=>$settings['location'],'branding'=>$settings['branding'],'features'=>$settings['features'],'intake'=>intake_settings($settings),'formFields'=>form_fields($settings)],'services'=>(intake_settings($settings)['mode']==='request'&&!intake_settings($settings)['serviceSelection'])?[]:$services]);
     }
     if($route==='public/month'&&$method==='GET'){
         $id=identifier($_GET['tenant']??'');$service=identifier($_GET['service']??'');$month=text($_GET,'month',7,true);
@@ -118,25 +119,27 @@ try {
     if($route==='public/book'&&$method==='POST'){
         $data=body();$tenantId=identifier($data['tenant']??'');$serviceId=identifier($data['service']??'');
         $key=text($data,'request_key',64,true);if(!preg_match('/^[a-zA-Z0-9_-]{24,64}$/D',$key))fail(422,'Ongeldige boekingsaanvraag.');
-        $name=text($data,'name',120,true);$email=email($data);$phone=text($data,'phone',40,true);$address=text($data,'address',250);$notes=text($data,'notes',1500);
+        $name=text($data,'name',120,true);$email=email($data);$phone=text($data,'phone',40);$address=text($data,'address',250);$notes=text($data,'notes',1500);
         $date=text($data,'date',10,true);$time=text($data,'time',5,true);time_minutes($time);
         $consent=flag($data,'marketing_consent');
         $source=$consent?text($data,'source',100):'website';$campaign=$consent?text($data,'campaign',150):'';
         $fingerprint=hash('sha256',encoded([$serviceId,$date,$time,$name,$email,$phone,$address,$notes,$consent,$source,$campaign]));
+        if(!empty($data['answers']))$fingerprint=hash('sha256',$fingerprint.encoded($data['answers']));
         limit_rate('booking-ip',client_ip(),20,3600);
-        $result=transaction(function()use($tenantId,$serviceId,$key,$fingerprint,$name,$email,$phone,$address,$notes,$date,$time,$consent,$source,$campaign){
+        $result=transaction(function()use($data,$tenantId,$serviceId,$key,$fingerprint,$name,$email,$phone,$address,$notes,$date,$time,$consent,$source,$campaign){
             // Every booking and availability edit takes this tenant lock. Two requests cannot reserve the same resource concurrently.
             $t=row('SELECT * FROM ab_tenants WHERE id=? AND active=1 FOR UPDATE',[$tenantId]);if(!$t||trial_expired($tenantId))fail(404,'Deze boekingspagina is niet beschikbaar.');
             $existing=row('SELECT id,request_hash,status FROM ab_bookings WHERE tenant_id=? AND request_key=?',[$tenantId,$key]);
             if($existing){if(!hash_equals($existing['request_hash'],$fingerprint))fail(409,'Gebruik een nieuwe boekingsaanvraag.');return ['id'=>$existing['id'],'status'=>$existing['status'],'replayed'=>true];}
             if(intake_settings(decoded($t['settings_json']))['mode']!=='booking')fail(409,'De werkwijze is gewijzigd. Herlaad de pagina om een aanvraag te sturen.');
             $s=row('SELECT * FROM ab_services WHERE id=? AND tenant_id=? AND active=1',[$serviceId,$tenantId]);if(!$s)fail(404,'Deze dienst is niet beschikbaar.');
-            $settings=decoded($t['settings_json']);if($settings['features']['address']&&$address==='')fail(422,'Vul het adres voor de afspraak in.');
+            $settings=decoded($t['settings_json']);$form=validate_form_submission($settings,$data);$phone=$form['phone'];$address=$form['address'];$notes=form_answers_note($form['notes'],$form['answers']);
             if(!in_array($time,slots($t,$s,$date,null,true),true))fail(409,'Dit moment is intussen niet meer beschikbaar. Kies een ander tijdstip.');
             $start=new DateTimeImmutable($date.' '.$time,new DateTimeZone('Europe/Brussels'));$utc=new DateTimeZone('UTC');
             $end=$start->modify('+'.((int)$s['duration']+(int)$s['buffer']).' minutes');$id=uid();
             $tracking=$consent&&$settings['features']['tracking'];
-            query('INSERT INTO ab_bookings(id,tenant_id,service_id,service_name,duration,buffer,price_cents,booking_date,booking_time,starts_at,ends_at,customer_name,customer_email,customer_phone,customer_address,customer_notes,source,campaign,marketing_consent,request_key,request_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[$id,$tenantId,$serviceId,$s['name'],$s['duration'],$s['buffer'],$s['price_cents'],$date,$time,$start->setTimezone($utc)->format('Y-m-d H:i:s'),$end->setTimezone($utc)->format('Y-m-d H:i:s'),$name,$email,$phone,$settings['features']['address']?$address:'',$settings['features']['notes']?$notes:'',$tracking?$source:'website',$tracking?$campaign:'',(int)$tracking,$key,$fingerprint]);
+            query('INSERT INTO ab_bookings(id,tenant_id,service_id,service_name,duration,buffer,price_cents,booking_date,booking_time,starts_at,ends_at,customer_name,customer_email,customer_phone,customer_address,customer_notes,source,campaign,marketing_consent,request_key,request_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[$id,$tenantId,$serviceId,$s['name'],$s['duration'],$s['buffer'],$s['price_cents'],$date,$time,$start->setTimezone($utc)->format('Y-m-d H:i:s'),$end->setTimezone($utc)->format('Y-m-d H:i:s'),$name,$email,$phone,$address,$notes,$tracking?$source:'website',$tracking?$campaign:'',(int)$tracking,$key,$fingerprint]);
+            save_form_answers($tenantId,'booking',$id,$form['answers']);
             google_enqueue($tenantId,'booking:'.$id);
             queue_company_notification('booking',$id,$t);
             crm_sync($t,'booking',$id);
@@ -218,7 +221,7 @@ try {
             $name=isset($data['name'])?text($data,'name',120,true):$t['name'];$email=isset($data['email'])?email($data):$t['contact_email'];
             query('UPDATE ab_tenants SET name=?,contact_email=?,settings_json=?,revision=revision+1 WHERE id=?',[$name,$email,encoded($settings),$t['id']]);
             foreach(array_unique(array_merge(decoded($t['settings_json'])['blocks'],$settings['blocks'])) as $day)if(in_array($day,decoded($t['settings_json'])['blocks'],true)!==in_array($day,$settings['blocks'],true))google_enqueue($t['id'],'block:'.$day);
-            audit($user['id'],'tenant.settings',$t['id']);return ['ok'=>true];
+            audit($user['id'],'tenant.settings',$t['id']);return ['ok'=>true,'revision'=>(int)$t['revision']+1];
         });google_after_write($data['tenant']);respond($result);
     }
     if($route==='tenant/admin'&&$method==='POST'){

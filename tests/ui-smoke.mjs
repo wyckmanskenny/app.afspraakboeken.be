@@ -150,8 +150,8 @@ test('Company admins can save intake mode and see leads even when the booking CR
  ui.document.querySelector('[data-page=widget]').click();await until(()=>ui.document.getElementById('intake-form'));
  let form=ui.document.getElementById('intake-form');assert.equal(ui.document.getElementById('intake-service-option').hidden,false);
  assert.ok(ui.document.getElementById('widget-code').value.includes('data-label="Neem contact op"'));
- form.querySelector('[name=serviceSelection]').checked=true;form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>saved);
- assert.deepEqual(JSON.parse(JSON.stringify(saved.settings)),{intake:{mode:'request',serviceSelection:true}});await until(()=>ui.document.getElementById('intake-form')!==form);
+ form.querySelector('[name=serviceSelection]').checked=true;form.querySelector('[name=serviceSelection]').dispatchEvent(new ui.window.Event('change',{bubbles:true}));await until(()=>saved);
+ assert.deepEqual(JSON.parse(JSON.stringify(saved.settings)),{intake:{mode:'request',serviceSelection:true}});await until(()=>ui.document.getElementById('intake-save-status').textContent==='Opgeslagen');assert.equal(form.querySelector('[type=submit]'),null);
  ui.document.querySelector('[data-page=crm]').click();await until(()=>ui.document.querySelector('[data-action=lead-detail]'));
  assert.equal(ui.document.querySelector('script'),null);assert.ok(ui.document.body.textContent.includes('Nog geen afspraak'));
  ui.document.querySelector('[data-action=lead-detail]').click();assert.ok(ui.document.getElementById('lead-form'));
@@ -206,7 +206,7 @@ test('CRM supports manual leads, column editing and focus mode without losing th
 });
 test('CRM preview uses fictitious contacts and retains exports without querying paid contact data',async()=>{
  const ui=await setup(route=>route==='me'?result({csrf:'test',user:{role:'admin',tenant_id:company.id,name:'Owner'}}):route==='crm/request'?result({message:'Received'}):result({tenant:company,services:[],bookings:[],leads:[]}));
- try{await until(()=>ui.document.querySelector('[data-page="customercrm"]'));ui.document.querySelector('[data-page="customercrm"]').click();assert.ok(ui.document.body.textContent.includes('Voorbeeld met fictieve contacten'));assert.equal(ui.calls.filter(c=>c.route==='crm/contacts').length,0);assert.equal(ui.document.querySelectorAll('a[href*="crm/export"]').length,3);ui.document.querySelector('[data-crm="request"]').click();await until(()=>ui.document.querySelector('.crm-request-status').textContent.includes('ontvangen'));assert.equal(ui.calls.filter(c=>c.route==='crm/request').length,1);}finally{await ui.close();}
+ try{await until(()=>ui.document.querySelector('[data-page="customercrm"]'));ui.document.querySelector('[data-page="customercrm"]').click();assert.ok(ui.document.body.textContent.includes('Voorbeeld met fictieve contacten'));assert.equal(ui.calls.filter(c=>c.route==='crm/contacts').length,0);assert.equal(ui.document.querySelectorAll('a[href*="crm/export"]').length,4);ui.document.querySelector('[data-crm="request"]').click();await until(()=>ui.document.querySelector('.crm-request-status').textContent.includes('ontvangen'));assert.equal(ui.calls.filter(c=>c.route==='crm/request').length,1);}finally{await ui.close();}
 });
 test('Paid CRM saves a contact and a note, then adds a follow-up action inside the same customer file',async()=>{
  const tenant=structuredClone(company);tenant.settings.features.crmPlus=true;let contact={id:'e'.repeat(32),name:'Jan',email:'jan@example.test',phone:'',company:'',address:'',tags:[],revision:1},notes=[],tasks=[];
@@ -346,4 +346,33 @@ test('Inline embed has no launch button and accepts sizing only from its own fra
  window.dispatchEvent(new window.MessageEvent('message',{origin:'https://evil.test',source:frame.contentWindow,data:{type:'slot:resize',height:500}}));assert.equal(wrapper.style.height,'850px');
  window.dispatchEvent(new window.MessageEvent('message',{origin:'https://app.afspraakboeken.be',source:frame.contentWindow,data:{type:'slot:resize',height:500}}));assert.equal(wrapper.style.height,'500px');
  await window.happyDOM.close();
+});
+
+test('Intake autosave rolls back on failure and displays an honest status',async()=>{
+ const tenant=structuredClone(company);tenant.settings.intake={mode:'booking',serviceSelection:true};
+ const ui=await setup(route=>route==='me'?result({csrf:'test',user:{role:'admin',name:'Owner',tenant_id:tenant.id}}):route==='tenant/save'?result({error:'Niet opgeslagen door testfout'},503):result({tenant,services:[service],bookings:[]}));
+ await until(()=>ui.document.querySelector('[data-page=widget]'));ui.document.querySelector('[data-page=widget]').click();
+ const radio=ui.document.querySelector('[name=intakeMode][value=request]');radio.checked=true;radio.dispatchEvent(new ui.window.Event('change',{bubbles:true}));
+ await until(()=>ui.document.getElementById('intake-save-status').textContent.includes('Niet opgeslagen'));
+ assert.equal(ui.document.querySelector('[name=intakeMode][value=booking]').checked,true);assert.equal(radio.disabled,false);assert.ok(ui.document.querySelectorAll('.flow-visual').length===2);await ui.close();
+});
+test('Public form obeys configured basic and premium fields and retains answers',async()=>{
+ const cfg={basic:{phone:'hidden',address:'optional',notes:'required'},custom:[{id:'kind',label:'Type werken',type:'select',required:true,options:['Dak','Gevel']}]};
+ const ui=await setup(route=>route==='public/catalog'?result({tenant:{...company,branding:brand,features:company.settings.features,intake:{mode:'request',serviceSelection:true},formFields:cfg},services:[service]}):result({status:'received',id:'f'.repeat(32)},201),'https://app.afspraakboeken.be/?mode=book&tenant='+company.id);
+ await until(()=>ui.document.querySelector('[data-book-action=service]'));ui.document.querySelector('[data-book-action=service]').click();
+ assert.equal(ui.document.querySelector('[name=phone]'),null);assert.equal(ui.document.querySelector('[name=address]').required,false);assert.equal(ui.document.querySelector('[name=notes]').required,true);
+ ui.document.querySelector('[name=question_kind]').value='Dak';ui.document.querySelector('[data-book-action=back-service]').click();ui.document.querySelector('[data-book-action=service]').click();assert.equal(ui.document.querySelector('[name=question_kind]').value,'Dak');
+ const form=ui.document.getElementById('public-booking-form');for(const [k,v] of Object.entries({name:'Test',email:'test@example.test',notes:'Hallo'}))form.querySelector(`[name=${k}]`).value=v;
+ form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.calls.some(c=>c.route==='public/lead'));assert.equal(ui.calls.find(c=>c.route==='public/lead').data.answers.kind,'Dak');await ui.close();
+});
+
+test('CRM Plus customer can save a required custom question with basic field settings',async()=>{
+ const tenant=structuredClone(company);tenant.settings.features.crmPlus=true;let saved;
+ const ui=await setup((route,data)=>route==='me'?result({csrf:'test',user:{role:'admin',name:'Owner',tenant_id:tenant.id}}):route==='tenant/save'?(saved=data,tenant.settings.formFields=data.settings.formFields,result({ok:true})):result({tenant,services:[service],bookings:[]}));
+ await until(()=>ui.document.querySelector('[data-page=widget]'));ui.document.querySelector('[data-page=widget]').click();
+ assert.equal(ui.document.querySelectorAll('.widget-section').length,3);assert.equal(ui.document.getElementById('form-fields-form').closest('details').open,false);
+ ui.document.querySelector('[data-action=question-add]').click();
+ ui.document.querySelector('[data-question=label]').value='Type werken';ui.document.querySelector('[data-question=required]').checked=true;
+ const form=ui.document.getElementById('form-fields-form');form.querySelector('[name=phone]').value='optional';form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>saved);
+ assert.equal(saved.settings.formFields.basic.phone,'optional');assert.equal(saved.settings.formFields.custom[0].label,'Type werken');assert.equal(saved.settings.formFields.custom[0].required,true);await ui.close();
 });

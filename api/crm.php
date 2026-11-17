@@ -96,8 +96,9 @@ function crm_import(array $user,array $data): array {
 function crm_export(array $user,array $data): never {
     // Read-only export remains available after the paid module/trial ends.
     $t=tenant_access($user,$data['tenant']??$user['tenant_id']);$kind=$data['kind']??'contacts';
-    if(!in_array($kind,['contacts','notes','tasks'],true))fail(422,'Ongeldig exporttype.');
+    if(!in_array($kind,['contacts','notes','tasks','answers'],true))fail(422,'Ongeldig exporttype.');
     if($kind==='contacts'){$sql="SELECT c.id,c.name,c.company,c.email,c.phone,c.address,(SELECT GROUP_CONCAT(t.name ORDER BY t.name SEPARATOR ', ') FROM ab_crm_tags t JOIN ab_crm_contact_tags x ON x.tag_id=t.id AND x.tenant_id=t.tenant_id WHERE x.contact_id=c.id AND x.tenant_id=c.tenant_id) AS labels,c.created_at FROM ab_crm_contacts c WHERE c.tenant_id=? ORDER BY c.name,c.id";$head=['ID','Naam','Bedrijf','E-mail','Telefoon','Adres','Labels','Aangemaakt (UTC)'];}
+    elseif($kind==='answers'){$sql='SELECT a.record_type,a.record_id,l.contact_id,a.field_id,a.question,a.answer FROM ab_form_answers a LEFT JOIN ab_crm_links l ON l.tenant_id=a.tenant_id AND l.record_type=a.record_type AND l.record_id=a.record_id WHERE a.tenant_id=? ORDER BY a.record_id,a.field_id';$head=['Type','Aanvraag of afspraak ID','Contact ID','Veld ID','Vraag','Antwoord'];}
     elseif($kind==='notes'){$sql='SELECT n.contact_id,c.name,n.content,n.created_at FROM ab_crm_notes n JOIN ab_crm_contacts c ON c.id=n.contact_id AND c.tenant_id=n.tenant_id WHERE n.tenant_id=? ORDER BY n.created_at,n.id';$head=['Contact ID','Naam','Notitie','Datum (UTC)'];}
     else{$sql='SELECT k.contact_id,c.name,k.title,k.due_date,k.completed FROM ab_crm_tasks k JOIN ab_crm_contacts c ON c.id=k.contact_id AND c.tenant_id=k.tenant_id WHERE k.tenant_id=? ORDER BY k.due_date,k.id';$head=['Contact ID','Naam','Actie','Opvolgdatum','Afgewerkt (1=ja)'];}
     query('SET SESSION group_concat_max_len=8192');
