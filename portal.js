@@ -207,7 +207,7 @@ document.addEventListener('submit',event=>{
  });
 });
 async function start(){
- if(new URLSearchParams(location.search).get('mode')==='book'){const {startBooking}=await import('./booking.js?v=0.16.3');return startBooking();}
+ if(new URLSearchParams(location.search).get('mode')==='book'){const {startBooking}=await import('./booking.js?v=0.16.4');return startBooking();}
  try{const session=await request('me');setCsrf(session.csrf);await signedIn(session.user);}
  catch(error){renderLogin(signedIn,error.status===401?'':'Je omgeving wordt klaargezet of is tijdelijk niet bereikbaar. Aanmelden werkt zodra de verbinding actief is.');}
 }

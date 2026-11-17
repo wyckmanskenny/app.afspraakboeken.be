@@ -58,7 +58,18 @@ test('Choosing a service goes straight to the calendar; confirmation waits for t
  let dayButton=ui.document.querySelector(`[data-date="${day}"]`);
  if(!dayButton){ui.document.querySelector('[data-book-action="month-next"]').click();dayButton=ui.document.querySelector(`[data-date="${day}"]`);}
  await until(()=>!ui.document.querySelector(`[data-date="${day}"]`).disabled);dayButton=ui.document.querySelector(`[data-date="${day}"]`);dayButton.click();await until(()=>ui.document.querySelector('[data-book-action="time"]'));ui.document.querySelector('[data-book-action="time"]').click();
- const form=ui.document.getElementById('public-booking-form');for(const [name,value] of Object.entries({name:'Test Customer',email:'person@example.test',phone:'0400000000'}))form.querySelector(`[name="${name}"]`).value=value;
+ let form=ui.document.getElementById('public-booking-form');for(const [name,value] of Object.entries({name:'Test Customer',email:'person@example.test',phone:'0400000000'}))form.querySelector(`[name="${name}"]`).value=value;
+ ui.document.querySelector('.steps [data-book-action="back-time"]').click();
+ await until(()=>ui.document.querySelector('[data-book-action="time"]'));
+ ui.document.querySelector('[data-book-action="time"]').click();
+ assert.equal(ui.document.querySelector('[name=email]').value,'person@example.test');
+ ui.document.querySelector('.steps [data-book-action="back-service"]').click();
+ assert.ok(ui.document.querySelector('[data-book-action="service"]'));
+ ui.document.querySelector('[data-book-action="service"]').click();
+ await until(()=>ui.document.querySelector('[data-book-action="time"]'));
+ ui.document.querySelector('[data-book-action="time"]').click();
+ form=ui.document.getElementById('public-booking-form');
+ assert.equal(form.querySelector('[name=name]').value,'Test Customer');
  form.querySelector('[name=marketing_consent]').checked=true;
  assert.ok(!ui.document.body.textContent.includes('Helemaal geregeld'));
  form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.document.body.textContent.includes('Helemaal geregeld'));
