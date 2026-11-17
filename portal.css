@@ -53,3 +53,28 @@ dialog{width:min(650px,calc(100% - 32px));max-height:90dvh;border:1px solid var(
 .widget-section>summary::after{content:'+';font-size:22px;color:var(--muted);margin-left:auto}.widget-section[open]>summary::after{content:'−'}
 
 .booking-panel .btn.primary:hover{background:var(--accent);color:var(--on-accent);border-color:var(--accent);filter:brightness(.96)}
+
+/* Inline embeds: a compact, self-contained card using the company's theme. */
+html.booking-embed-document,html.booking-embed-document body{background:transparent}
+.booking-page.booking-inline{min-height:0;padding:12px;background:transparent;font-size:14px;line-height:1.5}
+.booking-inline .booking-container{width:100%;max-width:616px;min-width:0}
+.booking-inline .booking-company{padding:4px 4px 16px;gap:10px}
+.booking-inline .booking-company h2{font-size:15px;overflow-wrap:anywhere}
+.booking-inline .booking-company .avatar{height:34px;min-width:34px;border-radius:10px;font-size:12px}
+.booking-inline .booking-panel{padding:28px;border-radius:16px;background:var(--brand-bg);box-shadow:0 4px 20px #00000006}
+.booking-inline .booking-panel h1{font-size:24px;line-height:1.25;letter-spacing:-.5px;margin:16px 0 8px;overflow-wrap:anywhere}
+.booking-inline.booking-contact-only .steps{display:none}
+.booking-inline.booking-contact-only .booking-panel h1{margin-top:0}
+.booking-inline .booking-panel .sub{font-size:14px;line-height:1.6;margin-top:0}
+.booking-inline #public-booking-form{margin-top:24px;gap:16px}
+.booking-inline .fields>label{font-size:13px;gap:6px;color:var(--brand-text);min-width:0}
+.booking-inline .fields label small,.booking-inline .field-help{color:var(--brand-muted)}
+.booking-inline .fields input:not([type=checkbox]),.booking-inline .fields select,.booking-inline .fields textarea{box-sizing:border-box;min-width:0;width:100%;font-size:16px;line-height:1.4;padding:11px 12px;border-radius:9px;border-color:var(--brand-line);background:var(--brand-surface);color:var(--brand-text)}
+.booking-inline .fields textarea{min-height:100px}
+.booking-inline .fields input:focus,.booking-inline .fields select:focus,.booking-inline .fields textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--light)}
+.booking-inline :focus-visible{outline-color:var(--brand-link)}
+.booking-inline .check{align-items:flex-start;line-height:1.5}
+.booking-inline input[type=checkbox]{accent-color:var(--accent)}
+.booking-inline .booking-panel .btn.primary{min-height:46px;font-size:14px;padding:12px 18px}
+.booking-inline .booking-footer{margin-top:14px}
+@media(max-width:420px){.booking-page.booking-inline{padding:6px}.booking-inline .booking-panel{padding:20px 16px;border-radius:13px}.booking-inline .booking-panel h1{font-size:22px}.booking-inline .booking-company{padding-bottom:12px}.booking-inline .steps{gap:8px}}

@@ -1,5 +1,5 @@
 {
-  "version": "0.17.3",
+  "version": "0.17.4",
   "site": "app.afspraakboeken.be",
-  "release": "simple-google-calendar-connection"
+  "release": "compact-branded-inline-form"
 }

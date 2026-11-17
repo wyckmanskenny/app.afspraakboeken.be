@@ -342,7 +342,7 @@ test('Inline embed has no launch button and accepts sizing only from its own fra
  const window=new Window({url:'https://customer.test/'}),document=window.document;
  const script=document.createElement('script');script.src='https://app.afspraakboeken.be/widget.js';script.dataset.account=company.id;script.dataset.mode='inline';document.body.append(script);Object.defineProperty(document,'currentScript',{value:script});
  vm.runInNewContext(fs.readFileSync(path.join(root,'widget.js'),'utf8'),{document,window,location:window.location,URL,URLSearchParams});
- const frame=document.querySelector('iframe'),wrapper=frame.parentElement;assert.ok(frame);assert.equal(document.querySelector('button'),null);
+ const frame=document.querySelector('iframe'),wrapper=frame.parentElement;assert.ok(frame);assert.equal(new URL(frame.src).searchParams.get('embed'),'inline');assert.equal(wrapper.style.maxWidth,'640px');assert.equal(document.querySelector('button'),null);
  window.dispatchEvent(new window.MessageEvent('message',{origin:'https://evil.test',source:frame.contentWindow,data:{type:'slot:resize',height:500}}));assert.equal(wrapper.style.height,'850px');
  window.dispatchEvent(new window.MessageEvent('message',{origin:'https://app.afspraakboeken.be',source:frame.contentWindow,data:{type:'slot:resize',height:500}}));assert.equal(wrapper.style.height,'500px');
  await window.happyDOM.close();
@@ -395,4 +395,9 @@ test('Calendar choice requires a deliberate selection when multiple calendars ex
 test('Calendar list failure keeps linking disabled and offers a retry',async()=>{
  const ui=await setup(route=>route==='me'?result({csrf:'test',user:{id:'c'.repeat(32),role:'admin',name:'Owner',tenant_id:company.id}}):route==='calendar/status'?result({configured:true,connection:{calendar_id:null},pending:0}):route==='calendar/list'?Promise.reject(new Error('offline')):result({tenant:company,services:[service],bookings:[],booking_limit:2000}),'https://app.afspraakboeken.be/?view=calendar');
  try{await until(()=>ui.document.querySelector('[data-gcal=list]'));const form=ui.document.querySelector('[data-gcal-form=select]');assert.equal(form.querySelector('[type=submit]').disabled,true);assert.equal(form.querySelector('select').disabled,true);assert.match(form.textContent,/niet worden opgehaald/);assert.equal(ui.calls.some(c=>c.route==='calendar/select'),false);}finally{await ui.close();}
+});
+
+test('Inline contact form retains company branding without an unnecessary step indicator',async()=>{
+ const ui=await setup(route=>route==='public/catalog'?result({tenant:{...company,branding:brand,features:company.settings.features,location:'Op afspraak',intake:{mode:'request',serviceSelection:false}},services:[]}):result({}), 'https://app.afspraakboeken.be/?mode=book&embed=inline&tenant='+company.id);
+ try{await until(()=>ui.document.getElementById('public-booking-form'));assert.ok(ui.document.documentElement.classList.contains('booking-embed-document'));const page=ui.document.querySelector('.booking-inline.booking-contact-only');assert.ok(page);assert.equal(page.style.getPropertyValue('--accent'),brand.primary);assert.ok(ui.document.querySelector('input[name=email][required]'));assert.equal(ui.calls.some(c=>c.route==='public/lead'),false);}finally{await ui.close();}
 });
