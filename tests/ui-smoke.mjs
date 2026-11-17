@@ -323,3 +323,27 @@ test('Calendar marks unavailable days before selection and keeps available days 
  blocked.click();assert.equal(ui.calls.filter(c=>c.route==='public/slots').length,0);
  assert.match(ui.document.body.textContent,/Lichtgrijs: niet beschikbaar/);await ui.close();
 });
+
+test('Widget visibility setting saves inline mode and restores it when reopening',async()=>{
+ const tenant=structuredClone(company);let saved;
+ const ui=await setup((route,data)=>{
+  if(route==='me')return result({csrf:'test',user:{id:'c'.repeat(32),role:'admin',name:'Owner',tenant_id:tenant.id}});
+  if(route==='tenant/save'){saved=data;tenant.settings.widgetMode=data.settings.widgetMode;tenant.revision++;return result({});}
+  return result({tenant,services:[service],bookings:[]});
+ });
+ await until(()=>ui.document.querySelector('[data-page="widget"]'));ui.document.querySelector('[data-page="widget"]').click();
+ const check=ui.document.getElementById('widget-show-button');assert.equal(check.checked,true);check.checked=false;check.dispatchEvent(new ui.window.Event('change',{bubbles:true}));
+ assert.equal(ui.document.getElementById('widget-button-options').hidden,true);assert.match(ui.document.getElementById('widget-code').value,/data-mode="inline"/);
+ ui.document.getElementById('widget-form').dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));
+ await until(()=>saved&&ui.document.getElementById('widget-show-button').checked===false);
+ assert.equal(saved.settings.widgetMode,'inline');assert.match(ui.document.getElementById('widget-code').value,/data-mode="inline"/);await ui.close();
+});
+test('Inline embed has no launch button and accepts sizing only from its own frame',async()=>{
+ const window=new Window({url:'https://customer.test/'}),document=window.document;
+ const script=document.createElement('script');script.src='https://app.afspraakboeken.be/widget.js';script.dataset.account=company.id;script.dataset.mode='inline';document.body.append(script);Object.defineProperty(document,'currentScript',{value:script});
+ vm.runInNewContext(fs.readFileSync(path.join(root,'widget.js'),'utf8'),{document,window,location:window.location,URL,URLSearchParams});
+ const frame=document.querySelector('iframe'),wrapper=frame.parentElement;assert.ok(frame);assert.equal(document.querySelector('button'),null);
+ window.dispatchEvent(new window.MessageEvent('message',{origin:'https://evil.test',source:frame.contentWindow,data:{type:'slot:resize',height:500}}));assert.equal(wrapper.style.height,'850px');
+ window.dispatchEvent(new window.MessageEvent('message',{origin:'https://app.afspraakboeken.be',source:frame.contentWindow,data:{type:'slot:resize',height:500}}));assert.equal(wrapper.style.height,'500px');
+ await window.happyDOM.close();
+});

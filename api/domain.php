@@ -2,7 +2,7 @@
 declare(strict_types=1);
 function default_settings(): array {
     return [
-        'location'=>'Op afspraak','notice'=>24,'intake'=>['mode'=>'booking','serviceSelection'=>true],
+        'location'=>'Op afspraak','notice'=>24,'widgetMode'=>'drawer','intake'=>['mode'=>'booking','serviceSelection'=>true],
         'hours'=>array_map(fn($i)=>['open'=>$i>0 && $i<6,'start'=>'09:00','end'=>'18:00'],range(0,6)),
         'blocks'=>[], 'branding'=>['primary'=>'#264653','secondary'=>'#2a9d8f','background'=>'#f8fafb','font'=>'dm-sans'],
         'features'=>['prices'=>true,'media'=>true,'address'=>false,'notes'=>true,'crm'=>true,'crmPlus'=>false,'tracking'=>false],
@@ -21,6 +21,7 @@ function time_minutes(string $value): int {
 function clean_settings(array $data, array $previous, bool $agency): array {
     $previous['features']['crmPlus']=$previous['features']['crmPlus']??false;
     $out=$previous;
+    if(array_key_exists('widgetMode',$data)){if(!is_string($data['widgetMode'])||!in_array($data['widgetMode'],['drawer','popup','inline'],true))fail(422,'Kies een geldige widgetweergave.');$out['widgetMode']=$data['widgetMode'];}
     if(isset($data['intake'])){
         $intake=$data['intake'];
         if(!is_array($intake)||!in_array($intake['mode']??'', ['booking','request'],true))fail(422,'Kies direct boeken of aanvragen ontvangen.');

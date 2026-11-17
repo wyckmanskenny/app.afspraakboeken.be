@@ -8,9 +8,18 @@ const isRequest=()=>tenant.intake?.mode==='request';
 const chooseService=()=>!isRequest()||tenant.intake.serviceSelection;
 const steps=()=>isRequest()?(chooseService()?[[1,'Dienst'],[3,'Gegevens']]:[[3,'Gegevens']]):[[1,'Dienst'],[2,'Moment'],[3,'Gegevens']];
 function currentService(){return services.find(s=>s.id===service);}
+let sizeObserver;
+function reportEmbedSize(){
+ try{const parent=params.get('parent'),url=new URL(parent);if(parent!==url.origin||!['https:','http:'].includes(url.protocol)||window.parent===window)return;
+ const content=document.querySelector('.booking-container'),page=document.querySelector('.booking-page');if(!content||!page)return;
+ const style=window.getComputedStyle(page);const height=Math.ceil(content.getBoundingClientRect().height+parseFloat(style.paddingTop)+parseFloat(style.paddingBottom));
+ window.parent.postMessage({type:'slot:resize',height},parent);
+ }catch{}
+}
 function render(){
  const style=Object.entries(brandVariables(tenant.branding)).map(([key,value])=>`${key}:${value}`).join(';');
  app.innerHTML=`<main class="booking-page" style="${style}"><div class="booking-container"><header class="booking-company"><div class="avatar">${esc(tenant.name.slice(0,2).toUpperCase())}</div><div><h2>${esc(tenant.name)}</h2><small>${esc(tenant.location)}</small></div></header><section class="booking-panel"><div class="steps" aria-label="Boekingsstappen">${steps().map(([value,name],i)=>`<button type="button" class="${step===value?'active':''}" data-book-action="${value===1?'back-service':'back-time'}" ${step>value&&!confirmation?'':'disabled'} ${step===value?'aria-current="step"':''}><b>${step>value?'✓':i+1}</b>${name}</button>`).join('')}</div><div class="step-enter">${confirmation?success():step===1?serviceStep():step===2?timeStep():detailsStep()}</div></section><footer class="booking-footer"><span>Eenvoudig geregeld met</span> <a class="widget-brand-link" href="https://afspraakboeken.be/?utm_source=afspraakboeken_widget&amp;utm_medium=referral&amp;utm_campaign=powered_by&amp;utm_content=booking" target="_blank" rel="noopener" aria-label="Ontdek Afspraakboeken.be (opent in een nieuw tabblad)"><img src="https://app.afspraakboeken.be/assets/widget-logo.svg?v=1" alt="Afspraakboeken.be" width="150" height="20"></a></footer></div></main>`;
+ sizeObserver?.disconnect();if(typeof ResizeObserver!=='undefined'){sizeObserver=new ResizeObserver(reportEmbedSize);sizeObserver.observe(document.querySelector('.booking-container'));}reportEmbedSize();
 }
 function serviceStep(){return `<h1 tabindex="-1" id="step-title">Waar kunnen we je mee helpen?</h1><p class="sub">${isRequest()?'Kies een dienst en vertel ons wat je nodig hebt.':'Kies een dienst. Daarna zie je meteen de kalender.'}</p>${services.map(s=>`<article class="book-service"><button type="button" class="service-pick" data-book-action="service" data-id="${s.id}">${tenant.features.media?serviceVisual(s.image,'service-thumb'):''}<span class="service-pick-label"><strong>${esc(s.name)}</strong><small>${s.duration} minuten${tenant.features.prices?' · '+money(s.price):''}</small></span></button><details><summary>Meer over deze dienst</summary><p>${esc(s.description)}</p>${safeUrl(s.image)?`<img src="${esc(s.image)}" alt="" loading="lazy">`:''}${safeUrl(s.video)?`<p><a href="${esc(s.video)}" target="_blank" rel="noopener">Bekijk de video </a></p>`:''}</details></article>`).join('')||'<div class="notice section-gap">Er zijn momenteel geen boekbare diensten.</div>'}`;}
 function summary(){const s=currentService();if(!s)return '';return `<div class="booking-summary"><span>${esc(s.name)} · ${s.duration} min${date&&time?`<br>${dateLabel(date)} om ${time}`:''}</span>${tenant.features.prices?`<strong>${money(s.price)}</strong>`:''}</div>`;}

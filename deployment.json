@@ -1,5 +1,5 @@
 {
-  "version": "0.16.4",
+  "version": "0.16.5",
   "site": "app.afspraakboeken.be",
-  "release": "clear-widget-back-navigation"
+  "release": "saved-inline-widget-and-transparent-branding"
 }

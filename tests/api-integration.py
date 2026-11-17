@@ -95,6 +95,14 @@ settings = {'notice':0,'hours':[{'open':True,'start':'09:00','end':'18:00'} for 
 a.call('tenant/save', {'tenant':ta['tenant_id'],'revision':wa['tenant']['revision'],'settings':settings})
 a.call('tenant/save', {'tenant':ta['tenant_id'],'revision':wa['tenant']['revision'],'settings':settings}, expected=409)
 ok('Optimistic revision checks reject stale settings writes')
+revision=a.call('workspace')['tenant']['revision']
+a.call('tenant/save',{'tenant':ta['tenant_id'],'revision':revision,'settings':{'widgetMode':'inline'}})
+assert a.call('workspace')['tenant']['settings']['widgetMode']=='inline'
+revision=a.call('workspace')['tenant']['revision']
+a.call('tenant/save',{'tenant':ta['tenant_id'],'revision':revision,'settings':{'widgetMode':'invalid'}},expected=422)
+a.call('tenant/save',{'tenant':ta['tenant_id'],'revision':revision,'settings':{'widgetMode':'drawer'}})
+ok('Widget display mode persists per account and rejects invalid modes')
+
 service = {'name':'Advice','category':'Test','description':'A real test appointment','duration':45,'buffer':15,'price':85,'active':True,'image':'','video':''}
 sa=a.call('service/save', {**service,'tenant':ta['tenant_id']})['id']
 sb=b.call('service/save', {**service,'tenant':tb['tenant_id']})['id']
