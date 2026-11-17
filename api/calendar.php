@@ -2,6 +2,7 @@
 declare(strict_types=1);
 final class GoogleCalendarError extends RuntimeException {public function __construct(public int $http=503){parent::__construct('Google Calendar is tijdelijk niet beschikbaar.');}}
 function ensure_calendar_schema(): void {
+    ensure_outlook_schema();
     if(row("SELECT id FROM ab_audit WHERE action='schema.google_v1' LIMIT 1"))return;
     $lock='ab-google-schema-'.substr(hash('sha256',configuration()['db']['name']),0,24);
     if((int)query('SELECT GET_LOCK(?,10)',[$lock])->fetchColumn()!==1)fail(503,'De agenda-update wordt klaargezet.');
@@ -60,14 +61,14 @@ function google_state(array $user,array $data): array {
 function google_callback(array $user,array $data): string {
     $state=text($data,'state',64,true);if(!preg_match('/^[a-f0-9]{64}$/D',$state))fail(400,'Ongeldige Google-aanmelding.');
     $s=transaction(function()use($user,$state){$s=row('SELECT * FROM ab_google_oauth WHERE state_hash=? FOR UPDATE',[hash('sha256',$state)]);
-        if(!$s||$s['claimed']||$s['expires_at']<=gmdate('Y-m-d H:i:s')||$s['user_id']!==$user['id']||!hash_equals($s['session_hash'],$user['token_hash']))fail(400,'Deze aanmelding is verlopen. Start opnieuw vanuit je agenda.');tenant_access($user,$s['tenant_id'],true);query('UPDATE ab_google_oauth SET claimed=1 WHERE state_hash=?',[$s['state_hash']]);return $s;});
+        if(!$s||$s['claimed']||$s['expires_at']<=gmdate('Y-m-d H:i:s')||$s['user_id']!==$user['id']||!hash_equals($s['session_hash'],$user['token_hash']))fail(400,'Deze aanmelding is verlopen. Start opnieuw vanuit je agenda.');tenant_access($user,$s['tenant_id'],true);calendar_provider_guard($s['tenant_id'],'google');query('UPDATE ab_google_oauth SET claimed=1 WHERE state_hash=?',[$s['state_hash']]);return $s;});
     $dest=rtrim(configuration()['app_url'],'/').'/?view=calendar&tenant='.$s['tenant_id'];if(isset($data['error'])){query('DELETE FROM ab_google_oauth WHERE state_hash=?',[$s['state_hash']]);return $dest.'&google=cancelled';}
     $cfg=google_config();if(!$cfg)fail(503,'De Google-koppeling is niet ingesteld.');
     $r=google_http('POST','https://oauth2.googleapis.com/token',['code'=>text($data,'code',4096,true),'client_id'=>$cfg['client_id'],'client_secret'=>$cfg['client_secret'],'redirect_uri'=>google_redirect(),'grant_type'=>'authorization_code'],'',true);
     if(empty($r['access_token'])||empty($r['refresh_token'])||!is_numeric($r['expires_in']??null)||array_diff(google_scopes(),explode(' ',$r['scope']??'')))fail(422,'Geef toegang tot de gevraagde agendafuncties en probeer opnieuw.');
     $old=row('SELECT * FROM ab_google_connections WHERE tenant_id=?',[$s['tenant_id']]);
     if($old&&$old['calendar_id']){$cal=google_http('GET','https://www.googleapis.com/calendar/v3/users/me/calendarList/'.rawurlencode($old['calendar_id']),null,$r['access_token']);if(!in_array($cal['accessRole']??'',['owner','writer'],true))fail(422,'Verbind opnieuw met het account dat toegang heeft tot de gekozen agenda.');}
-    transaction(function()use($user,$s,$r){tenant_access($user,$s['tenant_id'],true);if(!row('SELECT state_hash FROM ab_google_oauth WHERE state_hash=? AND expires_at>UTC_TIMESTAMP()',[$s['state_hash']]))fail(409,'De koppeling is intussen afgebroken. Start opnieuw.');query('DELETE FROM ab_google_oauth WHERE state_hash=?',[$s['state_hash']]);query('INSERT INTO ab_google_connections(tenant_id,access_token,refresh_token,expires_at) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE access_token=VALUES(access_token),refresh_token=VALUES(refresh_token),expires_at=VALUES(expires_at),last_error=\'\'',[ $s['tenant_id'],google_seal($r['access_token']),google_seal($r['refresh_token']),gmdate('Y-m-d H:i:s',time()+(int)$r['expires_in'])]);audit($user['id'],'calendar.authorized',$s['tenant_id']);});return $dest.'&google=connected';
+    transaction(function()use($user,$s,$r){tenant_access($user,$s['tenant_id'],true);calendar_provider_guard($s['tenant_id'],'google');if(!row('SELECT state_hash FROM ab_google_oauth WHERE state_hash=? AND expires_at>UTC_TIMESTAMP()',[$s['state_hash']]))fail(409,'De koppeling is intussen afgebroken. Start opnieuw.');query('DELETE FROM ab_google_oauth WHERE state_hash=?',[$s['state_hash']]);query('INSERT INTO ab_google_connections(tenant_id,access_token,refresh_token,expires_at) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE access_token=VALUES(access_token),refresh_token=VALUES(refresh_token),expires_at=VALUES(expires_at),last_error=\'\'',[ $s['tenant_id'],google_seal($r['access_token']),google_seal($r['refresh_token']),gmdate('Y-m-d H:i:s',time()+(int)$r['expires_in'])]);audit($user['id'],'calendar.authorized',$s['tenant_id']);});return $dest.'&google=connected';
 }
 function google_list(string $tenant): array {
     $items=[];$page='';for($n=0;$n<20;$n++){$r=google_api($tenant,'GET','users/me/calendarList?'.http_build_query(['minAccessRole'=>'writer','maxResults'=>250,'pageToken'=>$page,'fields'=>'items(id,summary,timeZone,accessRole),nextPageToken']));foreach($r['items']??[] as $c)if(in_array($c['accessRole']??'',['owner','writer'],true))$items[]=['id'=>$c['id'],'name'=>$c['summary']??$c['id'],'zone'=>$c['timeZone']??'Europe/Brussels'];$page=$r['nextPageToken']??'';if($page==='')return $items;}throw new GoogleCalendarError();
@@ -77,6 +78,7 @@ function google_status(array $user,array $data): array {
     return ['configured'=>google_config()!==null,'connection'=>$c,'pending'=>(int)query('SELECT COUNT(*) FROM ab_google_events e JOIN ab_google_connections c ON c.tenant_id=e.tenant_id AND c.calendar_id=e.calendar_id WHERE e.tenant_id=? AND e.dirty=1',[$t['id']])->fetchColumn(),'cron'=>row("SELECT created_at FROM ab_audit WHERE action='calendar.cron' ORDER BY id DESC LIMIT 1")];
 }
 function google_enqueue(string $tenant,string $key): void {
+    outlook_enqueue($tenant,$key);
     $c=row('SELECT calendar_id FROM ab_google_connections WHERE tenant_id=?',[$tenant]);if(!$c||!$c['calendar_id'])return;
     query('INSERT INTO ab_google_events(tenant_id,calendar_id,object_key,event_id) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE dirty=1,revision=revision+1',[$tenant,$c['calendar_id'],$key,'ab'.bin2hex(random_bytes(20))]);
 }
@@ -108,6 +110,7 @@ function google_pull(string $tenant): void {
     if(connection()->inTransaction())$save();else transaction($save);
 }
 function google_busy(string $tenant,string $date,bool $fresh=false): array {
+    if(row('SELECT tenant_id FROM ab_outlook_connections WHERE tenant_id=? AND calendar_id IS NOT NULL',[$tenant]))return outlook_busy($tenant,$date,$fresh);
     $c=row('SELECT * FROM ab_google_connections WHERE tenant_id=?',[$tenant]);if(!$c||!$c['calendar_id'])return [];
     if($c['last_error']==='sync')fail(503,'De agendasynchronisatie heeft aandacht nodig. Probeer later opnieuw of neem contact op met het bedrijf.');
     try{if($fresh||!$c['last_pull']||strtotime($c['last_pull'].' UTC')<time()-60||$c['last_error']!==''||$c['coverage_end']<=$date)google_pull($tenant);}
@@ -131,12 +134,12 @@ function google_process(string $tenant,int $limit=10): void {
     }catch(Throwable $e){query("UPDATE ab_google_connections SET last_error='sync' WHERE tenant_id=?",[$tenant]);throw $e;}
     finally{query('SELECT RELEASE_LOCK(?)',[$lock]);}
 }
-function google_after_write(string $tenant): void {try{google_process($tenant,3);}catch(Throwable $e){/* Local booking remains durable; cron retries the same external IDs. */}}
+function google_after_write(string $tenant): void {outlook_after_write($tenant);try{google_process($tenant,3);}catch(Throwable $e){/* Local booking remains durable; cron retries the same external IDs. */}}
 function google_select(array $user,array $data): array {
     if(!flag($data,'confirmed'))fail(422,'Bevestig dat je de afspraken naar Google wilt synchroniseren.');
     $t=tenant_access($user,$data['tenant']??$user['tenant_id']);$id=text($data,'calendar',255,true);$list=google_list($t['id']);$selected=null;foreach($list as $c)if($c['id']===$id)$selected=$c;if(!$selected)fail(422,'Kies een agenda waarvoor je schrijfrechten hebt.');
     if($selected['zone']!=='Europe/Brussels'&&$selected['zone']!=='Europe/Amsterdam'&&$selected['zone']!=='Europe/Paris')fail(422,'Gebruik voor deze eerste versie een agenda in de tijdzone Brussel, Amsterdam of Parijs.');
-    transaction(function()use($user,$t,$id,$selected){tenant_access($user,$t['id'],true);$c=row('SELECT * FROM ab_google_connections WHERE tenant_id=?',[$t['id']]);if(!$c)fail(409,'Verbind eerst met Google.');if($c['calendar_id']&&$c['calendar_id']!==$id)fail(409,'Ontkoppel eerst de huidige agenda.');if(row('SELECT tenant_id FROM ab_google_connections WHERE calendar_id=? AND tenant_id<>?',[$id,$t['id']]))fail(409,'Deze agenda is al aan een ander bedrijf gekoppeld.');
+    transaction(function()use($user,$t,$id,$selected){tenant_access($user,$t['id'],true);calendar_provider_guard($t['id'],'google');$c=row('SELECT * FROM ab_google_connections WHERE tenant_id=?',[$t['id']]);if(!$c)fail(409,'Verbind eerst met Google.');if($c['calendar_id']&&$c['calendar_id']!==$id)fail(409,'Ontkoppel eerst de huidige agenda.');if(row('SELECT tenant_id FROM ab_google_connections WHERE calendar_id=? AND tenant_id<>?',[$id,$t['id']]))fail(409,'Deze agenda is al aan een ander bedrijf gekoppeld.');
         query('UPDATE ab_google_connections SET calendar_id=?,calendar_name=?,calendar_zone=?,last_pull=NULL WHERE tenant_id=?',[$id,$selected['name'],$selected['zone'],$t['id']]);
         foreach(query('SELECT id FROM ab_bookings WHERE tenant_id=? AND booking_date>=CURDATE()',[$t['id']])->fetchAll() as $b)google_enqueue($t['id'],'booking:'.$b['id']);foreach(decoded($t['settings_json'])['blocks'] as $day)if($day>=date('Y-m-d'))google_enqueue($t['id'],'block:'.$day);audit($user['id'],'calendar.selected',$t['id']);});
     google_after_write($t['id']);try{google_pull($t['id']);}catch(Throwable $e){query("UPDATE ab_google_connections SET last_error=IF(last_error='sync','sync','connection') WHERE tenant_id=?",[$t['id']]);}return ['ok'=>true];
@@ -159,3 +162,5 @@ function calendar_reschedule(array $user,array $data): array {
         $date=text($data,'date',10,true);$time=text($data,'time',5,true);if(!in_array($time,slots($t,['active'=>true,'duration'=>$b['duration'],'buffer'=>$b['buffer']],$date,$id,true),true))fail(409,'Dit moment is niet meer vrij. Kies opnieuw.');
         $start=new DateTimeImmutable($date.' '.$time,new DateTimeZone('Europe/Brussels'));$end=$start->modify('+'.((int)$b['duration']+(int)$b['buffer']).' minutes');$utc=new DateTimeZone('UTC');query('UPDATE ab_bookings SET booking_date=?,booking_time=?,starts_at=?,ends_at=? WHERE id=?',[$date,$time,$start->setTimezone($utc)->format('Y-m-d H:i:s'),$end->setTimezone($utc)->format('Y-m-d H:i:s'),$id]);google_enqueue($t['id'],'booking:'.$id);audit($user['id'],'booking.rescheduled',$id);return ['ok'=>true,'tenant'=>$t['id']];});google_after_write($result['tenant']);return ['ok'=>true];
 }
+
+require_once __DIR__.'/outlook.php';

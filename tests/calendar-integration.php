@@ -11,7 +11,7 @@ require __DIR__.'/../api/bootstrap.php';require __DIR__.'/../api/domain.php';req
 function check(bool $value,string $label):void{if(!$value)throw new RuntimeException($label);}
 function rejects(callable $fn,int $status):void{try{$fn();}catch(ApiError $e){check($e->status===$status,'Expected status '.$status.', got '.$e->status);return;}throw new RuntimeException('Expected rejection');}
 ensure_calendar_schema();
-foreach(['ab_google_busy','ab_google_oauth','ab_google_events','ab_google_connections'] as $table)query('DELETE FROM '.$table);
+foreach(['ab_outlook_busy','ab_outlook_oauth','ab_outlook_events','ab_outlook_connections','ab_google_busy','ab_google_oauth','ab_google_events','ab_google_connections'] as $table)query('DELETE FROM '.$table);
 $t=row('SELECT t.* FROM ab_tenants t WHERE t.active=1 AND EXISTS(SELECT 1 FROM ab_bookings b WHERE b.tenant_id=t.id) ORDER BY t.id LIMIT 1');check((bool)$t,'Fixture tenant');$id=$t['id'];
 $u=row("SELECT * FROM ab_users WHERE role='superadmin' LIMIT 1");$u['token_hash']=str_repeat('a',64);
 $remote=[];$listed=[];$calls=[];$failInsert=false;$outage=false;$refreshes=0;

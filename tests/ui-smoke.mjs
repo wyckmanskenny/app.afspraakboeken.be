@@ -419,3 +419,14 @@ test('Appointment details prioritize email and cancel only after explicit confir
  form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>!ui.document.getElementById('modal').open);assert.equal(attempts,2);assert.equal(booking.status,'cancelled');const sent=ui.calls.find(c=>c.route==='booking/update').data;assert.equal(sent.id,booking.id);assert.equal(sent.tenant,company.id);assert.equal(sent.status,'cancelled');
  }finally{await ui.close();}
 });
+
+test('Calendar provider choice keeps unconfigured Outlook unavailable',async()=>{
+ const ui=await setup(route=>route==='me'?result({csrf:'test',user:{role:'admin',name:'Owner',tenant_id:company.id}}):route==='calendar/status'?result({configured:true,connection:null}):route==='outlook/status'?result({configured:false,connection:null}):result({tenant:company,services:[],bookings:[]}),'https://app.afspraakboeken.be/?view=calendar');
+ try{await until(()=>ui.document.querySelector('[data-calendar-provider=outlook]'));assert.equal(ui.document.querySelector('[data-calendar-provider=outlook]').disabled,true);assert.equal(ui.document.querySelector('[data-calendar-provider=google]').disabled,false);ui.document.querySelector('[data-calendar-provider=google]').click();await until(()=>ui.document.querySelector('[data-gcal=connect]'));assert.match(ui.document.querySelector('[data-gcal=connect]').textContent,/Google/);}finally{await ui.close();}
+});
+
+test('Connected Microsoft account selects Outlook agenda without calling Google select',async()=>{
+ let selected=false;
+ const ui=await setup(route=>route==='me'?result({csrf:'test',user:{role:'admin',name:'Owner',tenant_id:company.id}}):route==='calendar/status'?result({configured:true,connection:null}):route==='outlook/status'?result({configured:true,connection:{calendar_id:selected?'work':null,calendar_name:'Werk'},pending:0}):route==='outlook/list'?result({calendars:[{id:'work',name:'Werk'}]}):route==='outlook/select'?(selected=true,result({ok:true})):result({tenant:company,services:[],bookings:[]}),'https://app.afspraakboeken.be/?view=calendar');
+ try{await until(()=>ui.document.querySelector('option[value=work]'));ui.document.querySelector('[data-gcal-form=select]').dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.document.querySelector('[data-gcal-form=disconnect]'));assert.equal(ui.calls.find(c=>c.route==='outlook/select').data.tenant,company.id);assert.equal(ui.calls.some(c=>c.route==='calendar/select'),false);assert.match(ui.document.querySelector('.outlook-calendar-panel').textContent,/Outlook/);}finally{await ui.close();}
+});

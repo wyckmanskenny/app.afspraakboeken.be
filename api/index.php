@@ -20,8 +20,8 @@ try {
         try{
             configuration();$ready=(int)query("SELECT COUNT(*) FROM ab_users WHERE role='superadmin'")->fetchColumn()>0;
             if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();ensure_form_fields_schema();ensure_board_notifications_schema();}
-            respond(['ready'=>$ready,'version'=>'0.17.6','trial_available'=>$ready&&mail_configuration()!==null]);
-        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.17.6'],503);}
+            respond(['ready'=>$ready,'version'=>'0.18.0','trial_available'=>$ready&&mail_configuration()!==null]);
+        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.18.0'],503);}
     }
     configuration();
     if($method==='OPTIONS'&&$route==='contact'){origin_guard(true);respond([],204);}
@@ -43,6 +43,7 @@ try {
     }
     ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();ensure_form_fields_schema();ensure_board_notifications_schema();
     if($route==='media/image'&&$method==='GET')serve_service_image($_GET);
+    if($route==='outlook/callback'&&$method==='GET'){$destination=outlook_callback(identity(),$_GET);header('Location: '.$destination,true,303);exit;}
     if($route==='calendar/callback'&&$method==='GET'){$destination=google_callback(identity(),$_GET);header('Location: '.$destination,true,303);exit;}
     if($route==='public/partner'&&$method==='GET'){$p=partner_code($_GET['code']??'');if(!$p)fail(404,'Partner niet gevonden.');respond(['name'=>$p['name']]);}
     if(str_starts_with($route,'partner/'))partner_routes($route,$method);
@@ -156,6 +157,12 @@ try {
     if($route==='calendar/select'&&$method==='POST')respond(google_select($user,body()));
     if($route==='calendar/disconnect'&&$method==='POST')respond(google_disconnect($user,body()));
     if($route==='calendar/sync'&&$method==='POST'){$data=body();$t=tenant_access($user,$data['tenant']??$user['tenant_id']);if($user['role']!=='superadmin'&&trial_expired($t['id']))fail(402,'Activeer eerst je account.');limit_rate('calendar-manual',$t['id'],10,600);google_pull($t['id']);google_process($t['id'],10);respond(['ok'=>true]);}
+    if($route==='outlook/status'&&$method==='GET')respond(outlook_status($user,$_GET));
+    if($route==='outlook/connect'&&$method==='POST')respond(outlook_state($user,body()));
+    if($route==='outlook/list'&&$method==='GET'){$t=tenant_access($user,$_GET['tenant']??$user['tenant_id']);respond(['calendars'=>outlook_list($t['id'])]);}
+    if($route==='outlook/select'&&$method==='POST')respond(outlook_select($user,body()));
+    if($route==='outlook/disconnect'&&$method==='POST')respond(outlook_disconnect($user,body()));
+    if($route==='outlook/sync'&&$method==='POST'){$data=body();$t=tenant_access($user,$data['tenant']??$user['tenant_id']);if($user['role']!=='superadmin'&&trial_expired($t['id']))fail(402,'Activeer eerst je account.');limit_rate('calendar-manual',$t['id'],10,600);outlook_pull($t['id']);outlook_process($t['id'],10);respond(['ok'=>true]);}
     if($route==='booking/slots'&&$method==='GET')respond(calendar_booking_slots($user,$_GET));
     if($route==='booking/reschedule'&&$method==='POST')respond(calendar_reschedule($user,body()));
     if($route==='partners/list'&&$method==='GET')respond(partner_admin_list($user));
