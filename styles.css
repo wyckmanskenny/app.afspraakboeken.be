@@ -134,3 +134,9 @@ dialog.booking-theme[open]::backdrop{animation:slot-backdrop-in 180ms ease-out}
 .widget-brand-link{display:inline-flex;align-items:center;padding:7px 9px;border-radius:6px;background:transparent;vertical-align:middle;max-width:100%;line-height:1}.widget-brand-link img{display:block;width:150px;height:auto;max-width:100%;margin:0}.widget-brand-link:focus-visible{outline:2px solid #264653;outline-offset:3px}.powered{flex-wrap:wrap}.booking-container>.booking-footer{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:5px}
 
 .steps button{appearance:none;background:none;border:0;padding:0;font:inherit;color:inherit;display:flex;align-items:center;gap:7px}.steps button:disabled{opacity:1;cursor:default}.steps button:not(:disabled){cursor:pointer;text-decoration:underline;text-underline-offset:4px}.steps button:focus-visible{outline:2px solid var(--accent);outline-offset:5px;border-radius:4px}.booking-back{margin-bottom:16px;min-height:40px;background:var(--brand-bg,#fff);color:var(--brand-text,#264653);border:1px solid var(--brand-line,#dfe7e9)}
+
+/* Keep service selectors round regardless of native button padding. */
+.booking-service .radio-dot{appearance:none;box-sizing:border-box;display:inline-grid;place-items:center;padding:0;min-width:22px;min-height:22px;width:22px;height:22px;flex:0 0 22px;border:1px solid var(--brand-line,#d9e4e8);border-radius:50%;line-height:1;background:var(--brand-surface,#fff)}
+.booking-theme .booking-service.selected .radio-dot,.booking-service.selected .radio-dot{border:1px solid var(--accent);background:var(--accent);color:var(--on-accent,#fff)}
+.booking-service.selected .radio-dot::after{content:'';display:block;width:5px;height:9px;border:solid currentColor;border-width:0 2px 2px 0;transform:translateY(-1px) rotate(45deg)}
+.booking-service .radio-dot:focus-visible{outline:2px solid var(--brand-link,var(--accent));outline-offset:4px}
