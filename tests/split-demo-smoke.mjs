@@ -1,0 +1,11 @@
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';
+const {Window}=await import(process.env.HAPPY_DOM_MODULE||'happy-dom');
+async function setup(query='?mode=book&tenant=lune'){
+ const w=new Window({url:'https://app.afspraakboeken.be/demo/'+query});w.document.body.innerHTML='<div id="app"></div><dialog id="modal"></dialog><div id="toast"></div>';w.scrollTo=()=>{};
+ const c=vm.createContext({window:w,document:w.document,location:w.location,localStorage:w.localStorage,URL,URLSearchParams,Intl,Date,crypto:globalThis.crypto,FormData:w.FormData,setTimeout,clearTimeout,console});
+ const core=new vm.SourceTextModule(fs.readFileSync(new URL('../demo/core.js',import.meta.url),'utf8'),{context:c});await core.link(()=>{});
+ const source=fs.readFileSync(new URL('../demo/app.js',import.meta.url),'utf8')+`\nexport function testBooking(){const s=tenant().services.find(s=>s.active);let date=TODAY(),slots=[];for(let i=0;i<60;i++){date=addDays(TODAY(),i);slots=available(tenant(),s,date,db.bookings);if(slots.length)break;}book.service=s.id;book.date=date;book.time=slots[0];const f=document.createElement('form');f.innerHTML='<input name="name" value="Demo Test"><input name="email" value="demo@example.test">';finishBooking(f);}`;
+ const m=new vm.SourceTextModule(source,{context:c});await m.link(()=>core);await m.evaluate();return {w,m};
+}
+test('A test booking updates the split agenda and board from the same saved record',async()=>{const {w,m}=await setup();assert.ok(w.document.querySelector('.demo-split'));m.namespace.testBooking();assert.match(w.document.querySelector('.success').textContent,/Demo/);assert.match(w.document.querySelector('.demo-agenda-item.demo-arrived').textContent,/Demo Test/);assert.match(w.document.querySelector('.demo-lead.demo-arrived').textContent,/Demo Test/);assert.match(w.document.querySelector('.demo-crm-note').textContent,/optionele/);assert.ok(w.document.querySelector('a[href="#demo-dashboard"]'));await w.happyDOM.close();});
+test('Form-only mode retains the existing booking layout',async()=>{const {w}=await setup('?mode=book&view=form');assert.equal(w.document.querySelector('.demo-split'),null);assert.ok(w.document.querySelector('.standalone'));await w.happyDOM.close();});
