@@ -180,6 +180,8 @@ test('Widget forwards lead events without revenue or personal data and rejects u
  const frame=document.querySelector('iframe'),data={type:'slot:lead_submitted',event:{event_id:'event1',value:100,email:'private@example.test',name:'Private'}};
  const emit=(origin,source)=>window.dispatchEvent(new window.MessageEvent('message',{origin,source,data}));
  emit('https://evil.example',frame.contentWindow);emit('https://app.afspraakboeken.be',window);assert.equal(window.dataLayer,undefined);
+ emit('https://app.afspraakboeken.be',frame.contentWindow);assert.equal(window.dataLayer,undefined);
+ window.dispatchEvent(new window.CustomEvent('afspraakboeken:consent',{detail:{statistics:true,marketing:true}}));
  emit('https://app.afspraakboeken.be',frame.contentWindow);emit('https://app.afspraakboeken.be',frame.contentWindow);
  assert.equal(window.dataLayer.length,1);assert.equal(window.dataLayer[0].event,'lead_submitted');for(const key of ['value','email','name'])assert.equal(key in window.dataLayer[0],false);await window.happyDOM.close();
 });

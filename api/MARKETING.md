@@ -15,3 +15,14 @@ The wrapper forwards UTM values and referrer origin. Update cached widget snippe
 CSV exports the selected measured cohort rows; it has a UTF-8 BOM, semicolon separators, quoted cells and spreadsheet-formula escaping. It contains no individual contact details. Existing CRM exports remain separate.
 
 Tests: marketing-integration.py uses a disposable localhost fixture from api-integration.py; marketing-smoke.mjs covers filtering, CSV, consent and reload deduplication. Existing booking/portal smoke tests cover regressions.
+
+## Website consent bridge (0.20.0)
+
+New embeds always set `consent=website`. They send only boolean statistics/marketing choices to the iframe using an exact origin and window source check. No bridge choice means denied; no iframe consent prompt is shown. Cookiebot's explicit statistics/marketing consent is read on ready, accept and decline. Other CMPs must publish the initial choice and changes (including withdrawal) through `window.afspraakboekenConsent` and the `afspraakboeken:consent` event, or `window.Afspraakboeken.setConsent({statistics,marketing})` after widget load. Do not hardcode grants. The widget passes choices to all its frames. `?ab_consent_debug=1` displays the last choices received, not an assertion of compliance or delivery.
+
+Statistics permission gates visits and measured conversion linkage. Marketing permission separately gates the Meta Pixel and legacy host dataLayer conversion event. The host rechecks marketing permission before accepting conversion messages. Withdrawal prevents subsequent events and invalidates queued statistics work; it cannot undo events already delivered. Regrant after withdrawal starts a new visit. The current parent choice always takes precedence over a saved iframe choice. Standalone form choices are granular and shown before the form, never after successful submission. No retroactive conversions after late permission.
+
+Cookie policy / installation: https://afspraakboeken.be/cookiebeleid/#websitekoppeling
+Terms: https://afspraakboeken.be/algemene-voorwaarden/
+
+Own website/app GTM loading is now controlled by `privacy.js`. Customer forms and cross-origin embeds never load our own GTM container. The owner must still configure the proper consent requirements on every GTM tag, especially custom HTML tags; container configuration was not inspected by this release. The policy inventory describes implemented storage; review external tag inventory and the processor agreement with counsel before treating these pages as a complete compliance package.
