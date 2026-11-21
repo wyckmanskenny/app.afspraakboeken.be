@@ -50,6 +50,7 @@ function public_lead(array $data): array {
         query('INSERT INTO ab_leads(id,tenant_id,service_id,service_name,customer_name,customer_email,customer_phone,customer_address,customer_notes,internal_notes,source,campaign,marketing_consent,request_key,request_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[
             $id,$tenantId,$s['id']??null,$s['name']??'',$name,$email,$phone,$address,$notes,'',$tracking?$source:'website',$tracking?$campaign:'',(int)$tracking,$key,$fingerprint]);
         save_form_answers($tenantId,'lead',$id,$form['answers']);
+        marketing_conversion($t,$data,'lead',$id);
         crm_sync($t,'lead',$id);
         queue_company_notification('lead',$id,$t);
         audit(null,'lead.received',$id);

@@ -12,6 +12,7 @@ require __DIR__.'/calendar.php';
 require __DIR__.'/media.php';
 require __DIR__.'/company-notifications.php';
 require __DIR__.'/board-notifications.php';
+require __DIR__.'/marketing.php';
 
 try {
     $route=trim($_GET['route']??'health','/');$method=$_SERVER['REQUEST_METHOD'];
@@ -19,9 +20,9 @@ try {
         header('Access-Control-Allow-Origin: *');
         try{
             configuration();$ready=(int)query("SELECT COUNT(*) FROM ab_users WHERE role='superadmin'")->fetchColumn()>0;
-            if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();ensure_form_fields_schema();ensure_board_notifications_schema();}
-            respond(['ready'=>$ready,'version'=>'0.18.0','trial_available'=>$ready&&mail_configuration()!==null]);
-        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.18.0'],503);}
+            if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();ensure_form_fields_schema();ensure_board_notifications_schema();ensure_marketing_schema();}
+            respond(['ready'=>$ready,'version'=>'0.19.0','trial_available'=>$ready&&mail_configuration()!==null]);
+        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.19.0'],503);}
     }
     configuration();
     if($method==='OPTIONS'&&$route==='contact'){origin_guard(true);respond([],204);}
@@ -41,7 +42,7 @@ try {
         }finally{query('SELECT RELEASE_LOCK(?)',[$lock]);}
         respond(['message'=>'Je superadminaccount is aangemaakt. Je kunt nu aanmelden.'],201);
     }
-    ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();ensure_form_fields_schema();ensure_board_notifications_schema();
+    ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();ensure_form_fields_schema();ensure_board_notifications_schema();ensure_marketing_schema();
     if($route==='media/image'&&$method==='GET')serve_service_image($_GET);
     if($route==='outlook/callback'&&$method==='GET'){$destination=outlook_callback(identity(),$_GET);header('Location: '.$destination,true,303);exit;}
     if($route==='calendar/callback'&&$method==='GET'){$destination=google_callback(identity(),$_GET);header('Location: '.$destination,true,303);exit;}
@@ -97,7 +98,7 @@ try {
         if(!$t||trial_expired($id))fail(404,'Deze boekingspagina is momenteel niet beschikbaar.');
         $settings=decoded($t['settings_json']);$services=array_map('service_view',query('SELECT * FROM ab_services WHERE tenant_id=? AND active=1 ORDER BY name',[$id])->fetchAll());
         foreach($services as &$s){unset($s['revision']);if(!$settings['features']['prices'])unset($s['price']);if(!$settings['features']['media']){$s['image']='';$s['video']='';}}unset($s);
-        respond(['tenant'=>['id'=>$t['id'],'name'=>$t['name'],'location'=>$settings['location'],'branding'=>$settings['branding'],'features'=>$settings['features'],'intake'=>intake_settings($settings),'formFields'=>form_fields($settings)],'services'=>(intake_settings($settings)['mode']==='request'&&!intake_settings($settings)['serviceSelection'])?[]:$services]);
+        respond(['tenant'=>['id'=>$t['id'],'name'=>$t['name'],'location'=>$settings['location'],'branding'=>$settings['branding'],'features'=>$settings['features'],'intake'=>intake_settings($settings),'marketing'=>marketing_public($t),'formFields'=>form_fields($settings)],'services'=>(intake_settings($settings)['mode']==='request'&&!intake_settings($settings)['serviceSelection'])?[]:$services]);
     }
     if($route==='public/month'&&$method==='GET'){
         $id=identifier($_GET['tenant']??'');$service=identifier($_GET['service']??'');$month=text($_GET,'month',7,true);
@@ -142,14 +143,18 @@ try {
             $tracking=$consent&&$settings['features']['tracking'];
             query('INSERT INTO ab_bookings(id,tenant_id,service_id,service_name,duration,buffer,price_cents,booking_date,booking_time,starts_at,ends_at,customer_name,customer_email,customer_phone,customer_address,customer_notes,source,campaign,marketing_consent,request_key,request_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[$id,$tenantId,$serviceId,$s['name'],$s['duration'],$s['buffer'],$s['price_cents'],$date,$time,$start->setTimezone($utc)->format('Y-m-d H:i:s'),$end->setTimezone($utc)->format('Y-m-d H:i:s'),$name,$email,$phone,$address,$notes,$tracking?$source:'website',$tracking?$campaign:'',(int)$tracking,$key,$fingerprint]);
             save_form_answers($tenantId,'booking',$id,$form['answers']);
+            marketing_conversion($t,$data,'booking',$id);
             google_enqueue($tenantId,'booking:'.$id);
             queue_company_notification('booking',$id,$t);
             crm_sync($t,'booking',$id);
             return ['id'=>$id,'status'=>'confirmed','replayed'=>false];
         });notify_company_after_commit('booking',$result['id']);google_after_write($tenantId);respond($result,201);
     }
+    if($route==='public/marketing-event'&&$method==='POST')respond(marketing_event(body()));
     $user=identity(true,$route!=='notifications');
     if($method==='POST')csrf($user);
+    if($route==='marketing/report'&&$method==='GET')respond(marketing_report($user,$_GET));
+    if($route==='marketing/settings'&&$method==='POST')respond(marketing_settings($user,body()));
     if($route==='service/image'&&$method==='POST')respond(upload_service_image($user),201);
     if($route==='calendar/status'&&$method==='GET')respond(google_status($user,$_GET));
     if($route==='calendar/connect'&&$method==='POST')respond(google_state($user,body()));

@@ -1,0 +1,17 @@
+CREATE TABLE IF NOT EXISTS ab_marketing_forms (
+ id CHAR(32) PRIMARY KEY, tenant_id CHAR(32) NOT NULL, name VARCHAR(100) NOT NULL,
+ enabled TINYINT NOT NULL DEFAULT 0, pixel VARCHAR(30) NOT NULL DEFAULT '', revision INT NOT NULL DEFAULT 1,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX(tenant_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS ab_marketing_visits (
+ tenant_id CHAR(32) NOT NULL, form_id CHAR(32) NOT NULL, visit_id CHAR(36) NOT NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, source VARCHAR(60) NOT NULL, medium VARCHAR(40) NOT NULL, campaign VARCHAR(100) NOT NULL,
+ device VARCHAR(10) NOT NULL, mode VARCHAR(12) NOT NULL, started TINYINT NOT NULL DEFAULT 0,
+ service_step TINYINT NOT NULL DEFAULT 0, moment_step TINYINT NOT NULL DEFAULT 0, details_step TINYINT NOT NULL DEFAULT 0,
+ converted TINYINT NOT NULL DEFAULT 0, PRIMARY KEY(tenant_id,form_id,visit_id), INDEX(tenant_id,created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS ab_marketing_submissions (
+ tenant_id CHAR(32) NOT NULL, form_id CHAR(32) NOT NULL, record_type VARCHAR(10) NOT NULL, record_id CHAR(32) NOT NULL,
+ visit_id CHAR(36) DEFAULT NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ PRIMARY KEY(tenant_id,record_type,record_id), INDEX(tenant_id,created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
