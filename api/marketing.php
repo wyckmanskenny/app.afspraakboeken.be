@@ -72,3 +72,17 @@ function marketing_report(array $user,array $d):array {
  foreach($received as $r){$day=(new DateTimeImmutable($r['created_at'],$utc))->setTimezone($tz)->format('Y-m-d');if(!isset($totals[$day]))$totals[$day]=['day'=>$day,'lead'=>0,'booking'=>0,'unmeasured'=>0];$totals[$day][$r['record_type']]++;if(!$r['visit_id'])$totals[$day]['unmeasured']++;}
  return ['forms'=>$forms,'groups'=>array_values($groups),'received'=>array_values($totals),'from'=>$a->format('Y-m-d'),'to'=>$b->modify('-1 day')->format('Y-m-d'),'previousFrom'=>$a->modify('-'.$days.' days')->format('Y-m-d'),'previousTo'=>$a->modify('-1 day')->format('Y-m-d'),'timezone'=>'Europe/Brussels'];
 }
+
+// Resolve saved attribution once per company per request, also for CRM history.
+function marketing_origin(array $record,string $kind):array {
+ static $companies=[];$tid=$record['tenant_id'];
+ if(!isset($companies[$tid])){
+  $companies[$tid]=[];
+  $rows=query('SELECT s.record_type,s.record_id,v.source,v.medium,v.campaign FROM ab_marketing_submissions s JOIN ab_marketing_visits v ON v.tenant_id=s.tenant_id AND v.form_id=s.form_id AND v.visit_id=s.visit_id WHERE s.tenant_id=?',[$tid])->fetchAll();
+  foreach($rows as $r)$companies[$tid][$r['record_type'].':'.$r['record_id']]=['source'=>$r['source'],'medium'=>$r['medium'],'campaign'=>$r['campaign']];
+  foreach(query('SELECT id,booking_id FROM ab_leads WHERE tenant_id=? AND booking_id IS NOT NULL',[$tid])->fetchAll() as $l){
+   if(isset($companies[$tid]['lead:'.$l['id']]))$companies[$tid]['booking:'.$l['booking_id']]=$companies[$tid]['lead:'.$l['id']];
+  }
+ }
+ return $companies[$tid][$kind.':'.$record['id']]??['source'=>$record['source']??'','medium'=>'','campaign'=>$record['campaign']??''];
+}

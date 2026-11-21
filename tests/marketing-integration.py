@@ -34,3 +34,10 @@ anon.call('public/marketing-event',{**event,'form':'f'*32},status=404)
 owner.call('marketing/report',status=422,tenant=tid,**{'from':'2020-01-01','to':day})
 assert r['groups'][0]['source']=='facebook' and r['groups'][0]['medium']=='paid_social'
 print('PASS marketing: migration, tenant isolation, consent, settings revision, visit deduplication, server-confirmed conversions, replay protection, unmeasured totals and date validation')
+
+leads=owner.call('workspace',tenant=tid)['leads']
+measured=next(l for l in leads if l['id']==a['id'])
+assert measured['origin']=={'source':'facebook','medium':'paid_social','campaign':'spring'}
+unmeasured=next(l for l in leads if l['email']=='unmeasured@example.test')
+assert unmeasured['origin']['source']=='website' and unmeasured['origin']['medium']==''
+print('PASS saved per-request origin and unmeasured fallback')

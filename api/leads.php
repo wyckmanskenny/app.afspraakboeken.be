@@ -21,7 +21,7 @@ function lead_view(array $lead): array {
         'name'=>$lead['customer_name'],'email'=>$lead['customer_email'],'phone'=>$lead['customer_phone'],
         'address'=>$lead['customer_address'],'notes'=>$lead['customer_notes'],'internalNotes'=>$lead['internal_notes'],
         'stage'=>$lead['stage'],'bookingId'=>$lead['booking_id'],'revision'=>(int)$lead['revision'],
-        'source'=>$lead['source'],'campaign'=>$lead['campaign'],'createdAt'=>str_replace(' ','T',$lead['created_at']).'Z'];
+        'origin'=>marketing_origin($lead,'lead'),'source'=>$lead['source'],'campaign'=>$lead['campaign'],'createdAt'=>str_replace(' ','T',$lead['created_at']).'Z'];
 }
 function public_lead(array $data): array {
     if(text($data,'website',200)!=='')fail(422,'Je aanvraag kon niet worden verstuurd.');

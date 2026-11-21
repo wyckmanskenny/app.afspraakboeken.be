@@ -91,7 +91,7 @@ function service_input(array $data): array {
     return $result;
 }
 function booking_view(array $b): array {
-    return ['id'=>$b['id'],'service'=>$b['service_id'],'serviceName'=>$b['service_name'],'duration'=>(int)$b['duration'],'buffer'=>(int)$b['buffer'],'price'=>(int)$b['price_cents']/100,'date'=>$b['booking_date'],'time'=>$b['booking_time'],'name'=>$b['customer_name'],'email'=>$b['customer_email'],'phone'=>$b['customer_phone'],'address'=>$b['customer_address'],'notes'=>$b['customer_notes'],'status'=>$b['status'],'stage'=>$b['stage'],'source'=>$b['source'],'campaign'=>$b['campaign']];
+    return ['id'=>$b['id'],'service'=>$b['service_id'],'serviceName'=>$b['service_name'],'duration'=>(int)$b['duration'],'buffer'=>(int)$b['buffer'],'price'=>(int)$b['price_cents']/100,'date'=>$b['booking_date'],'time'=>$b['booking_time'],'name'=>$b['customer_name'],'email'=>$b['customer_email'],'phone'=>$b['customer_phone'],'address'=>$b['customer_address'],'notes'=>$b['customer_notes'],'status'=>$b['status'],'stage'=>$b['stage'],'origin'=>marketing_origin($b,'booking'),'source'=>$b['source'],'campaign'=>$b['campaign']];
 }
 function slots(array $tenant,array $service,string $date,?string $ignore=null,bool $fresh=false): array {
     if (!valid_date($date)) fail(422,'Kies een geldige datum.');
