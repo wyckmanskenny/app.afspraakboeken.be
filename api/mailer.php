@@ -69,7 +69,8 @@ function deliver_mail(string $recipient, string $name, array $content, string $r
             $mail->Timeout = 10;
             $mail->getSMTPInstance()->Timelimit = 15;
             $mail->CharSet = 'UTF-8';
-            $fromName = 'Afspraakboeken.be';
+            $fromName = $content['from_name'] ?? 'Afspraakboeken.be';
+            if(!is_string($fromName)||strlen($fromName)>480||preg_match('/[\r\n\x00]/',$fromName))throw new InvalidArgumentException('Invalid sender name');
             $mail->setFrom($config['from_email'], $fromName);
             $replyTo = $replyTo ?: ($config['reply_to'] ?? '');
             if ($replyTo !== '') $mail->addReplyTo($replyTo);

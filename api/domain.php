@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__.'/appointment-reminders.php';
 function default_settings(): array {
     return [
         'location'=>'Op afspraak','notice'=>24,'widgetMode'=>'drawer','intake'=>['mode'=>'booking','serviceSelection'=>true],
@@ -8,6 +9,7 @@ function default_settings(): array {
         'features'=>['prices'=>true,'media'=>true,'address'=>false,'notes'=>true,'crm'=>true,'crmPlus'=>false,'tracking'=>false],
         'subject'=>'Je afspraak bij {{bedrijf}}',
         'message'=>"Dag {{voornaam}},\n\nJe afspraak voor {{dienst}} staat gepland op {{datum}} om {{tijd}}.\n\nTot dan!\n{{bedrijf}}",
+        'appointmentReminders'=>appointment_reminder_settings([]),
     ];
 }
 function valid_date(string $value): bool {
@@ -64,6 +66,7 @@ function clean_settings(array $data, array $previous, bool $agency): array {
 function tenant_view(array $tenant, bool $internal = false): array {
     $out=['id'=>$tenant['id'],'name'=>$tenant['name'],'sector'=>$tenant['sector'],'email'=>$tenant['contact_email'],'active'=>(bool)$tenant['active'],'revision'=>(int)$tenant['revision'],'settings'=>decoded($tenant['settings_json'])];
     $out['settings']['intake']=intake_settings($out['settings']);
+    $out['settings']['appointmentReminders']=appointment_reminder_settings($out['settings']);
     $out['trial']=trial_view($tenant['id']);
     if ($internal) {
         $out['subscription']=['type'=>$tenant['plan_type'],'monthlyAmount'=>(int)$tenant['monthly_cents']/100,'lifetimeAmount'=>(int)$tenant['lifetime_cents']/100,'billing'=>decoded($tenant['billing_json'])];

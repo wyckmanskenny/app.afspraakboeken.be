@@ -1,5 +1,5 @@
 {
-  "version": "0.20.1",
+  "version": "0.21.0",
   "site": "app.afspraakboeken.be",
-  "release": "consistent-versioned-demo-navigation"
+  "release": "configurable-appointment-reminders-with-company-reply-to"
 }

@@ -21,8 +21,8 @@ try {
         try{
             configuration();$ready=(int)query("SELECT COUNT(*) FROM ab_users WHERE role='superadmin'")->fetchColumn()>0;
             if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();ensure_form_fields_schema();ensure_board_notifications_schema();ensure_marketing_schema();}
-            respond(['ready'=>$ready,'version'=>'0.20.0','trial_available'=>$ready&&mail_configuration()!==null]);
-        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.20.0'],503);}
+            respond(['ready'=>$ready,'version'=>'0.21.0','trial_available'=>$ready&&mail_configuration()!==null]);
+        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.21.0'],503);}
     }
     configuration();
     if($method==='OPTIONS'&&$route==='contact'){origin_guard(true);respond([],204);}
@@ -146,6 +146,7 @@ try {
             marketing_conversion($t,$data,'booking',$id);
             google_enqueue($tenantId,'booking:'.$id);
             queue_company_notification('booking',$id,$t);
+            queue_appointment_reminders($t,$id);
             crm_sync($t,'booking',$id);
             return ['id'=>$id,'status'=>'confirmed','replayed'=>false];
         });notify_company_after_commit('booking',$result['id']);google_after_write($tenantId);respond($result,201);
@@ -153,6 +154,10 @@ try {
     if($route==='public/marketing-event'&&$method==='POST')respond(marketing_event(body()));
     $user=identity(true,$route!=='notifications');
     if($method==='POST')csrf($user);
+    if($route==='reminders/status'&&$method==='GET')respond(appointment_reminder_status($user,$_GET));
+    if($route==='reminders/save'&&$method==='POST')respond(save_appointment_reminders($user,body()));
+    if($route==='reminders/preview'&&$method==='GET')respond(preview_appointment_reminder($user,$_GET));
+    if($route==='reminders/test'&&$method==='POST')respond(preview_appointment_reminder($user,body(),true));
     if($route==='marketing/report'&&$method==='GET')respond(marketing_report($user,$_GET));
     if($route==='marketing/settings'&&$method==='POST')respond(marketing_settings($user,body()));
     if($route==='service/image'&&$method==='POST')respond(upload_service_image($user),201);
@@ -293,7 +298,7 @@ try {
             $t=tenant_access($user,$data['tenant']??null,true);$id=identifier($data['id']??null);
             $b=row('SELECT * FROM ab_bookings WHERE id=? AND tenant_id=?',[$id,$t['id']]);if(!$b)fail(404,'Afspraak niet gevonden.');
             if(isset($data['stage'])){if(!decoded($t['settings_json'])['features']['crm'])fail(403,'Klantopvolging staat niet aan.');if(!in_array($data['stage'],array_column(crm_columns(decoded($t['settings_json'])),'id'),true))fail(422,'Ongeldige opvolgfase.');query('UPDATE ab_bookings SET stage=? WHERE id=?',[$data['stage'],$id]);}
-            if(isset($data['status'])){if($data['status']!=='cancelled')fail(422,'Een annulering kan niet automatisch worden teruggedraaid.');query('UPDATE ab_bookings SET status=\'cancelled\' WHERE id=?',[$id]);google_enqueue($t['id'],'booking:'.$id);}
+            if(isset($data['status'])){if($data['status']!=='cancelled')fail(422,'Een annulering kan niet automatisch worden teruggedraaid.');query('UPDATE ab_bookings SET status=\'cancelled\' WHERE id=?',[$id]);google_enqueue($t['id'],'booking:'.$id);queue_appointment_reminders($t,$id);}
             audit($user['id'],'booking.updated',$id);return ['ok'=>true];
         });google_after_write($data['tenant']);respond($result);
     }

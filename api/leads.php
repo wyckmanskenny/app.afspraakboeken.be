@@ -97,6 +97,7 @@ function schedule_lead(array $user,array $data): array {
             $booking,$t['id'],$service,$s['name'],$s['duration'],$s['buffer'],$s['price_cents'],$date,$time,$start->setTimezone($utc)->format('Y-m-d H:i:s'),$end->setTimezone($utc)->format('Y-m-d H:i:s'),$lead['customer_name'],$lead['customer_email'],$lead['customer_phone'],$lead['customer_address'],$lead['customer_notes'],'contacted',$lead['source'],$lead['campaign'],$lead['marketing_consent'],bin2hex(random_bytes(32)),hash('sha256',encoded([$id,$service,$date,$time]))]);
         query("UPDATE ab_leads SET booking_id=?,stage='contacted',revision=revision+1 WHERE id=?",[$booking,$id]);
         google_enqueue($t['id'],'booking:'.$booking);
+        queue_appointment_reminders($t,$booking);
         crm_sync($t,'lead',$id);crm_sync($t,'booking',$booking);
         audit($user['id'],'lead.scheduled',$id);return ['id'=>$booking,'replayed'=>false];
     });

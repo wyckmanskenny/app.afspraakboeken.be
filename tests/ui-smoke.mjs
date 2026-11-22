@@ -309,7 +309,7 @@ test('Company booking email links open the appointments overview after login',as
 test('Email settings show the company notification recipient and delivery problems',async()=>{
  const ui=await setup(route=>route==='me'?result({csrf:'test',user:{id:'c'.repeat(32),role:'admin',name:'Owner',tenant_id:company.id}}):result({tenant:company,services:[service],bookings:[],notification_mail:{configured:true,pending:2,attention:1}}));
  try{await until(()=>ui.document.querySelector('[data-page=emails]'));ui.document.querySelector('[data-page=emails]').click();
- assert.ok(ui.document.body.textContent.includes('test@example.test'));assert.ok(ui.document.body.textContent.includes('2 meldingen'));assert.ok(ui.document.body.textContent.includes('verzending aandacht nodig'));assert.ok(ui.document.body.textContent.includes('naar je eindklanten zijn nog niet aangesloten'));
+ assert.ok(ui.document.body.textContent.includes('test@example.test'));assert.ok(ui.document.body.textContent.includes('2 meldingen'));assert.ok(ui.document.body.textContent.includes('verzending aandacht nodig'));assert.ok(ui.document.body.textContent.includes('De onmiddellijke afspraakbevestiging per e-mail is nog niet aangesloten'));
  }finally{await ui.close();}
 });
 
@@ -431,4 +431,49 @@ test('Connected Microsoft account selects Outlook agenda without calling Google 
  let selected=false;
  const ui=await setup(route=>route==='me'?result({csrf:'test',user:{role:'admin',name:'Owner',tenant_id:company.id}}):route==='calendar/status'?result({configured:true,connection:null}):route==='outlook/status'?result({configured:true,connection:{calendar_id:selected?'work':null,calendar_name:'Werk'},pending:0}):route==='outlook/list'?result({calendars:[{id:'work',name:'Werk'}]}):route==='outlook/select'?(selected=true,result({ok:true})):result({tenant:company,services:[],bookings:[]}),'https://app.afspraakboeken.be/?view=calendar');
  try{await until(()=>ui.document.querySelector('option[value=work]'));ui.document.querySelector('[data-gcal-form=select]').dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.document.querySelector('[data-gcal-form=disconnect]'));assert.equal(ui.calls.find(c=>c.route==='outlook/select').data.tenant,company.id);assert.equal(ui.calls.some(c=>c.route==='calendar/select'),false);assert.match(ui.document.querySelector('.outlook-calendar-panel').textContent,/Outlook/);}finally{await ui.close();}
+});
+
+
+test('Reminder switches autosave, show the company reply address and send tests only to the signed-in user',async()=>{
+ const tenant=structuredClone(company);let settings={threeDays:false,oneDay:true,sameDay:false,sameDayTime:'08:00',message:''};let revision=tenant.revision;
+ const ui=await setup((route,data)=>{
+  if(route==='me')return result({csrf:'test',user:{role:'admin',name:'Owner',email:'owner@example.test',tenant_id:tenant.id}});
+  if(route==='workspace')return result({tenant,services:[],bookings:[],notification_mail:{configured:true}});
+  if(route==='reminders/status')return result({settings,configured:true,cron:{created_at:new Date().toISOString().slice(0,19).replace('T',' ')}});
+  if(route==='reminders/save'){settings={...settings,...data.settings};return result({settings,revision:++revision});}
+  if(route==='reminders/test')return result({recipient:'owner@example.test',status:'sent'});
+  if(route==='reminders/preview')return result({subject:'Voorbeeld',html:'<html><body>Voorbeeld</body></html>'});
+  return result({});
+ },'https://app.afspraakboeken.be/?view=emails');
+ try{
+  await until(()=>ui.document.getElementById('reminders-form'));const form=ui.document.getElementById('reminders-form');
+  assert.equal(form.elements.oneDay.checked,true);assert.equal(form.elements.threeDays.checked,false);assert.equal(form.querySelector('button[type=submit]'),null);
+  assert.ok(ui.document.body.textContent.includes(tenant.email));assert.ok(ui.document.querySelector('.reminder-time').hidden);
+  form.elements.sameDay.click();await until(()=>ui.document.querySelector('[data-save-status]').textContent==='Opgeslagen');
+  assert.equal(settings.sameDay,true);assert.equal(ui.document.querySelector('.reminder-time').hidden,false);
+  assert.deepEqual(ui.calls.find(c=>c.route==='reminders/save').data.settings,{sameDay:true});
+  ui.document.querySelector('[data-test]').click();await until(()=>ui.document.querySelector('[data-test-status]').textContent.includes('Testmail verstuurd'));
+  assert.deepEqual(ui.calls.find(c=>c.route==='reminders/test').data,{tenant:tenant.id});
+  ui.document.querySelector('[data-preview]').click();await until(()=>ui.document.querySelector('.reminder-preview-frame'));
+  assert.equal(ui.document.querySelector('.reminder-preview-frame').getAttribute('sandbox'),'');
+  assert.ok(ui.document.querySelector('.reminder-preview-frame').srcdoc.includes('Voorbeeld'));
+ }finally{await ui.close();}
+});
+
+test('A failed reminder autosave remains visible and can be retried without claiming success',async()=>{
+ const tenant=structuredClone(company);let failed=true;
+ const ui=await setup((route,data)=>{
+  if(route==='me')return result({csrf:'test',user:{role:'admin',name:'Owner',email:'owner@example.test',tenant_id:tenant.id}});
+  if(route==='workspace')return result({tenant,services:[],bookings:[]});
+  if(route==='reminders/status')return result({configured:true,cron:null});
+  if(route==='reminders/save')return failed?result({error:'Verbinding verbroken'},503):result({settings:{threeDays:true,oneDay:true,sameDay:false,sameDayTime:'08:00',message:''},revision:2});
+  return result({});
+ },'https://app.afspraakboeken.be/?view=emails');
+ try{
+  await until(()=>ui.document.getElementById('reminders-form'));ui.document.querySelector('[name=threeDays]').click();
+  await until(()=>ui.document.querySelector('[data-save-status]').textContent==='Nog niet opgeslagen');
+  assert.equal(ui.document.querySelector('[data-preview]').disabled,true);assert.ok(ui.document.querySelector('.form-error').textContent.includes('Verbinding verbroken'));
+  failed=false;ui.document.querySelector('[data-retry]').click();await until(()=>ui.document.querySelector('[data-save-status]').textContent==='Opgeslagen');
+  assert.equal(ui.document.querySelector('[data-preview]').disabled,false);
+ }finally{await ui.close();}
 });

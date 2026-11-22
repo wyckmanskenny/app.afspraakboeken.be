@@ -5,7 +5,7 @@ De app verstuurt de volgende e-mails via één SMTP-mailbox:
 - **Welkomstmail:** automatisch nadat jij een klantaccount aanmaakt. De ontvanger is de opgeslagen accountbeheerder. De mail bevat een persoonlijke, eenmalige wachtwoordlink die 24 uur geldig is. Het account blijft inactief totdat jij het activeert.
 - **Nieuwe aanvraag:** na het opslaan van een informatie- of activatieaanvraag, naar **kenny@kdesign.be**. Antwoorden op de melding gaat naar de aanvrager. Alle aanvragen staan ook onder **Aanvragen**; een mailstoring verwijdert ze niet.
 
-Dit zijn transactionele mails. Er wordt geen nieuwsbriefinschrijving gemaakt. Boekingsbevestigingen en agenda-integraties zijn nog niet aangesloten.
+Dit zijn transactionele mails. Er wordt geen nieuwsbriefinschrijving gemaakt. Boekingsbevestigingen zijn een afzonderlijke functie. Afspraakherinneringen worden beheerd via **Herinneringen**; zie [APPOINTMENT-REMINDERS.md](APPOINTMENT-REMINDERS.md).
 
 ## Eenmalig de verzendmailbox koppelen
 
@@ -63,3 +63,8 @@ De bestaande `api/cron-trials.php` verwerkt voortaan ook maximaal 50 wachtende b
 Herhaalde formulierverzoeken gebruiken dezelfde melding; een verzonden melding wordt niet opnieuw verstuurd. Een vaste Message-ID helpt bij herkenning van herhaalpogingen. SMTP kan geen absolute exactly-once inboxbezorging garanderen wanneer de verbinding wegvalt nadat de ontvangende server de mail al heeft geaccepteerd. SMTP-acceptatie garandeert ook geen inboxplaatsing.
 
 Bestaande afspraken van vóór deze release worden niet achteraf gemaild. Handmatig ingevoerde leads en intern ingeplande afspraken maken geen extra melding aan de invoerende beheerder. Een geannuleerde afspraak of een gedeactiveerd bedrijf wordt bij een uitgestelde verzendpoging overgeslagen. De bevestigingsmail aan de eindklant is een afzonderlijke functie en wordt door deze update niet geactiveerd.
+
+
+## Afspraakherinneringen (0.21.0)
+
+Bedrijven kiezen zelf voor 3 dagen vooraf, 1 dag vooraf (standaard aan) en/of de dag zelf. Antwoorden gaan via Reply-To naar hun actuele contactadres, zonder extra uitleg in de mailtekst. De bestaande kalendercron verzorgt de verzending. Zie [APPOINTMENT-REMINDERS.md](APPOINTMENT-REMINDERS.md) voor planning, rechten en verificatie.

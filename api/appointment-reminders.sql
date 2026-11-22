@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS ab_appointment_reminders (
+ id CHAR(64) PRIMARY KEY,
+ tenant_id CHAR(32) NOT NULL,
+ booking_id CHAR(32) NOT NULL,
+ appointment_start DATETIME NOT NULL,
+ kind VARCHAR(12) NOT NULL,
+ due_at DATETIME NOT NULL,
+ status VARCHAR(24) NOT NULL DEFAULT 'pending',
+ reason VARCHAR(32) NOT NULL DEFAULT '',
+ attempts SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+ next_attempt_at DATETIME NOT NULL,
+ attempted_at DATETIME NULL,
+ sent_at DATETIME NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE KEY appointment_reminder_once (booking_id,appointment_start,kind),
+ INDEX appointment_reminder_due (status,next_attempt_at),
+ INDEX appointment_reminder_tenant (tenant_id,booking_id),
+ FOREIGN KEY (tenant_id) REFERENCES ab_tenants(id),
+ FOREIGN KEY (booking_id) REFERENCES ab_bookings(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -2,6 +2,7 @@
 declare(strict_types=1);
 final class GoogleCalendarError extends RuntimeException {public function __construct(public int $http=503){parent::__construct('Google Calendar is tijdelijk niet beschikbaar.');}}
 function ensure_calendar_schema(): void {
+    ensure_appointment_reminders_schema();
     ensure_outlook_schema();
     if(row("SELECT id FROM ab_audit WHERE action='schema.google_v1' LIMIT 1"))return;
     $lock='ab-google-schema-'.substr(hash('sha256',configuration()['db']['name']),0,24);
@@ -160,7 +161,7 @@ function calendar_reschedule(array $user,array $data): array {
     $result=transaction(function()use($user,$data){$t=tenant_access($user,$data['tenant']??$user['tenant_id'],true);$id=identifier($data['id']??'');$b=row("SELECT * FROM ab_bookings WHERE id=? AND tenant_id=? AND status='confirmed'",[$id,$t['id']]);if(!$b)fail(404,'Afspraak niet gevonden.');
         if(($data['expected_date']??'')!==$b['booking_date']||($data['expected_time']??'')!==$b['booking_time'])fail(409,'De afspraak is elders gewijzigd. Open ze opnieuw.');
         $date=text($data,'date',10,true);$time=text($data,'time',5,true);if(!in_array($time,slots($t,['active'=>true,'duration'=>$b['duration'],'buffer'=>$b['buffer']],$date,$id,true),true))fail(409,'Dit moment is niet meer vrij. Kies opnieuw.');
-        $start=new DateTimeImmutable($date.' '.$time,new DateTimeZone('Europe/Brussels'));$end=$start->modify('+'.((int)$b['duration']+(int)$b['buffer']).' minutes');$utc=new DateTimeZone('UTC');query('UPDATE ab_bookings SET booking_date=?,booking_time=?,starts_at=?,ends_at=? WHERE id=?',[$date,$time,$start->setTimezone($utc)->format('Y-m-d H:i:s'),$end->setTimezone($utc)->format('Y-m-d H:i:s'),$id]);google_enqueue($t['id'],'booking:'.$id);audit($user['id'],'booking.rescheduled',$id);return ['ok'=>true,'tenant'=>$t['id']];});google_after_write($result['tenant']);return ['ok'=>true];
+        $start=new DateTimeImmutable($date.' '.$time,new DateTimeZone('Europe/Brussels'));$end=$start->modify('+'.((int)$b['duration']+(int)$b['buffer']).' minutes');$utc=new DateTimeZone('UTC');query('UPDATE ab_bookings SET booking_date=?,booking_time=?,starts_at=?,ends_at=? WHERE id=?',[$date,$time,$start->setTimezone($utc)->format('Y-m-d H:i:s'),$end->setTimezone($utc)->format('Y-m-d H:i:s'),$id]);google_enqueue($t['id'],'booking:'.$id);queue_appointment_reminders($t,$id);audit($user['id'],'booking.rescheduled',$id);return ['ok'=>true,'tenant'=>$t['id']];});google_after_write($result['tenant']);return ['ok'=>true];
 }
 
 require_once __DIR__.'/outlook.php';
