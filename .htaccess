@@ -2,3 +2,16 @@
 <IfModule mod_headers.c>
   Header always set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
 </IfModule>
+
+# Disable inherited year-long browser expiry for frequently updated documents.
+<IfModule mod_expires.c>
+  <FilesMatch "\.(html|js|css|json)$">
+    ExpiresActive Off
+  </FilesMatch>
+</IfModule>
+<IfModule mod_headers.c>
+  <FilesMatch "\.(html|js|css|json)$">
+    Header unset Expires
+    Header set Cache-Control "no-cache, must-revalidate, max-age=0"
+  </FilesMatch>
+</IfModule>
