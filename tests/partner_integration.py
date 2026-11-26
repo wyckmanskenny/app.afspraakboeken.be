@@ -1,5 +1,5 @@
 """Partner authorization and referral tests; disposable database + loopback mail only."""
-import secrets,re,os,subprocess
+import secrets,re,os,subprocess,base64,json
 from urllib.parse import urlparse,parse_qs
 from datetime import datetime,timedelta
 from zoneinfo import ZoneInfo
@@ -7,7 +7,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
-def run(Client,owner,anonymous,messages):
+def run(Client,owner,anonymous,messages,envelopes,config,state):
     password='Only-for-integration-tests-123!'
     def sql(s):
         base=Path(os.environ['TEST_RUNTIME_USR'])
@@ -25,8 +25,14 @@ def run(Client,owner,anonymous,messages):
     saved=owner.call('partners/save',onboard);onboard_id=saved['id']
     assert saved['mail']=='sent' and len(messages)==before+1
     assert 'Welkom partner bij Afspraakboeken' in str(messages[-1]['Subject'])
+    assert str(messages[-1]['From']).endswith('<hallo@afspraakboeken.be>')
+    assert envelopes[-1]==[onboard['email']]
+    plain=messages[-1].get_body(('plain',)).get_content()
+    portal=saved['invite_url'].split('#invite=')[0]
+    assert saved['invite_url'] in plain and portal in plain
     html=messages[-1].get_body(('html',)).get_content()
     assert '<script>' not in html and '<img src=x>' not in html
+    assert 'href="'+portal+'"' in html, 'Welcome mail needs a direct portal link as well as password setup'
     assert owner.call('partners/save',onboard)['id']==onboard_id
     assert len(messages)==before+1, 'A retried partner creation must not send a second welcome mail'
     owner.call('partners/save',{**onboard,'name':'Changed request'},expected=409)
@@ -35,12 +41,37 @@ def run(Client,owner,anonymous,messages):
     assert detail['partner']['contact_name']==onboard['contact_name']
     assert detail['partner']['phone']==onboard['phone']
     assert detail['partner']['commission_bps']==2025
+    member_id=detail['members'][0]['id']
+    assert detail['partner']['active'] is True
+    assert detail['partner']['activation_status']=='pending'
+    assert detail['partner']['member_count']==1 and detail['partner']['activated_members']==0
+    assert detail['members'][0]['activated'] is False
+    assert detail['members'][0]['activated_at'] is None
+    assert detail['members'][0]['invite_mail_status']=='sent'
+    assert detail['members'][0]['invited_at'] and detail['members'][0]['invite_expires_at']
+    assert not any(key in detail['members'][0] for key in ['password_hash','token_hash'])
+    listed=next(x for x in owner.call('partners/list')['partners'] if x['id']==onboard_id)
+    assert listed['activation_status']=='pending' and listed['activated_members']==0
     for invalid in ['-1','100.01','1.001','not-a-rate']:
         owner.call('partners/save',{**detail['partner'],'commission_percent':invalid},expected=422)
     token=saved['invite_url'].split('#invite=')[1]
     anonymous.call('partner/invite-check',{'token':token})
     anonymous.call('partner/invite-accept',{'token':token,'password':password})
     anonymous.call('partner/invite-accept',{'token':token,'password':password},expected=400)
+    activated=owner.call('partners/detail',id=onboard_id)
+    assert activated['partner']['activation_status']=='activated'
+    assert activated['partner']['activated_members']==1
+    assert activated['members'][0]['activated'] is True and activated['members'][0]['activated_at']
+    activation_time=activated['members'][0]['activated_at']
+    before=len(messages)
+    resent=owner.call('partners/member',{'partner':onboard_id,'id':member_id})
+    assert resent['mail']=='sent' and len(messages)==before+1
+    assert str(messages[-1]['From']).endswith('<hallo@afspraakboeken.be>')
+    refreshed=owner.call('partners/detail',id=onboard_id)
+    assert refreshed['members'][0]['activated'] is True
+    assert refreshed['members'][0]['activated_at']==activation_time, 'A password reset does not undo first activation'
+    assert refreshed['members'][0]['invite_mail_status']=='sent'
+    anonymous.call('partner/invite-check',{'token':resent['invite_url'].split('#invite=')[1]})
     joined=Client();joined.csrf=joined.call('partner/login',{'email':onboard['email'],'password':password})['csrf']
     changed=owner.call('partners/detail',id=onboard_id)['partner']
     owner.call('partners/save',{**changed,'email':'partner-new-contact@example.test','commission_percent':'25'})
@@ -81,8 +112,50 @@ def run(Client,owner,anonymous,messages):
     assert sql(f"SELECT COUNT(*) FROM ab_partners WHERE id='{concurrent_id}'")=='1'
     assert sql(f"SELECT COUNT(*) FROM ab_partner_members WHERE partner_id='{concurrent_id}'")=='1'
     assert len(messages)==before+1, 'Concurrent onboarding may send only one welcome mail'
+    # Delivery failures remain visible after reopening the partner, and can be retried.
+    failed_member=owner.call('partners/detail',id=concurrent_id)['members'][0]['id']
+    state['reject']=True
+    try:
+        rejected=owner.call('partners/member',{'partner':concurrent_id,'id':failed_member})
+        assert rejected['mail']=='failed' and rejected['mail_error']=='delivery_rejected'
+        failed_detail=owner.call('partners/detail',id=concurrent_id)
+        assert failed_detail['members'][0]['invite_mail_status']=='failed'
+        assert failed_detail['members'][0]['invite_mail_error']=='delivery_rejected'
+        assert failed_detail['partner']['activation_status']=='pending'
+        assert 'test-smtp-password' not in json.dumps(rejected)+json.dumps(failed_detail)
+    finally:state['reject']=False
+    for smtp_mode,error_code in [('reject_auth','authentication'),('reject_sender','sender_rejected')]:
+        before=len(messages);state[smtp_mode]=True
+        try:
+            rejected=owner.call('partners/member',{'partner':concurrent_id,'id':failed_member})
+            assert rejected['mail']=='failed' and rejected['mail_error']==error_code
+            assert len(messages)==before, 'The message must not be submitted after SMTP authentication/sender rejection'
+            failed_detail=owner.call('partners/detail',id=concurrent_id)
+            assert failed_detail['members'][0]['invite_mail_status']=='failed'
+            assert failed_detail['members'][0]['invite_mail_error']==error_code
+            assert 'test-smtp-password' not in json.dumps(rejected)+json.dumps(failed_detail)
+        finally:state[smtp_mode]=False
+    saved_config=config.read_bytes()
+    try:
+        settings=json.loads(base64.b64decode(re.search(rb"base64_decode\('([^']+)'\)",saved_config).group(1)))
+        settings['mail']['enabled']=False
+        encoded=base64.b64encode(json.dumps(settings).encode()).decode()
+        config.write_text("<?php return json_decode(base64_decode('"+encoded+"'),true);")
+        before=len(messages)
+        unconfigured=owner.call('partners/member',{'partner':concurrent_id,'id':failed_member})
+        assert unconfigured['mail']=='not_configured' and unconfigured['mail_error']=='not_configured' and len(messages)==before
+        assert owner.call('partners/detail',id=concurrent_id)['members'][0]['invite_mail_status']=='not_configured'
+    finally:config.write_bytes(saved_config)
+    recovered=owner.call('partners/member',{'partner':concurrent_id,'id':failed_member})
+    assert recovered['mail']=='sent'
+    recovered_detail=owner.call('partners/detail',id=concurrent_id)
+    assert recovered_detail['members'][0]['invite_mail_status']=='sent'
+    assert recovered_detail['members'][0]['invite_mail_error'] is None
+    anonymous.call('partner/invite-check',{'token':recovered['invite_url'].split('#invite=')[1]})
     pid=owner.call('partners/save',{'name':'Partner <script>A</script>','email':'partner-office@example.test','active':True,'can_create':True,'can_activate':False})['id']
     other=owner.call('partners/save',{'name':'Partner B','email':'partner-b@example.test','active':True,'can_create':True,'can_activate':True})['id']
+    assert owner.call('partners/detail',id=pid)['partner']['activation_status']=='not_invited'
+    assert owner.call('partners/detail',id=pid)['partner']['member_count']==0
     def member(pid,email):
         r=owner.call('partners/member',{'partner':pid,'name':'Sales Person','email':email})
         assert r['mail']=='sent' and '/partners/#invite=' in r['invite_url']
@@ -120,7 +193,15 @@ def run(Client,owner,anonymous,messages):
     trial={'name':'Referral Customer','company':'Referral company','email':'partner-referral@example.test','sector':'Test','partner':code}
     anonymous.call('trial/signup',trial,expected=201)
     trialtoken=re.search(r'/activate.html#trial=([a-f0-9]{64})',messages[-1].get_body(('plain',)).get_content()).group(1)
+    # Pausing access stops new referrals, but an already issued verification keeps its attribution.
+    paused=owner.call('partners/detail',id=pid)['partner']
+    owner.call('partners/save',{**paused,'active':False})
+    anonymous.call('public/partner',code=code,expected=422)
     result=anonymous.call('trial/accept',{'token':trialtoken,'password':password});refid=result['tenant_id']
+    assert sql(f"SELECT partner_id FROM ab_partner_accounts WHERE tenant_id='{refid}'")==pid, 'Pausing must preserve already-issued referral attribution'
+    paused=owner.call('partners/detail',id=pid)['partner']
+    owner.call('partners/save',{**paused,'active':True})
+    p.csrf=p.call('partner/login',{'email':'partner-a@example.test','password':password})['csrf']
     assert any(a['tenant_id']==refid for a in p.call('partner/me')['accounts'])
     anonymous.call('trial/signup',{**trial,'partner':code2},expected=201)
     assert not any(a['tenant_id']==refid for a in q.call('partner/me')['accounts'])
@@ -217,12 +298,30 @@ def run(Client,owner,anonymous,messages):
     commission_count=sql('SELECT COUNT(*) FROM ab_partner_commissions')
     # Re-run a completed additive migration concurrently; established rows and totals must survive unchanged.
     before_migration=report['commissions'];partner_count=sql('SELECT COUNT(*) FROM ab_partners')
-    sql("DELETE FROM ab_audit WHERE action='schema.partners_v2'")
+    # Simulate a pre-v3 member: only a password-set audit proves activation, not superseded invitations.
+    sql(f"UPDATE ab_partner_members SET activated_at=NULL WHERE partner_id='{onboard_id}'")
+    # v2 kept the first company welcome status, but did not persist a later resend's result.
+    # Its latest invitation must not inherit that initial 'sent' status during migration.
+    sql(f"UPDATE ab_partners SET invite_mail_status='sent' WHERE id='{concurrent_id}'")
+    sql(f"UPDATE ab_partner_members SET invited_at=NULL,invite_mail_status=NULL,invite_mail_error=NULL,invite_token_hash=NULL WHERE user_id='{failed_member}'")
+    sql(f"UPDATE ab_audit SET created_at='2025-01-01 10:00:00' WHERE action='partner.invited' AND target_id='{failed_member}'")
+    sql(f"INSERT INTO ab_audit(action,target_id,created_at) VALUES ('partner.invited','{failed_member}','2025-01-02 10:00:00')")
+    sql("DELETE FROM ab_audit WHERE action IN ('schema.partners_v2','schema.partners_v3')")
     assert all(result['ready'] for result in parallel('health'))
     assert sql("SELECT COUNT(*) FROM ab_audit WHERE action='schema.partners_v2'")=='1'
+    assert sql("SELECT COUNT(*) FROM ab_audit WHERE action='schema.partners_v3'")=='1'
     assert sql('SELECT COUNT(*) FROM ab_partners')==partner_count
     assert sql('SELECT COUNT(*) FROM ab_partner_commissions')==commission_count
     assert p.call('partner/me')['commissions']==before_migration
+    migrated=owner.call('partners/detail',id=onboard_id)
+    assert migrated['members'][0]['activated'] is True and migrated['members'][0]['activated_at']==activation_time
+    assert migrated['members'][0]['invite_mail_status']=='sent', 'A known member delivery result must survive migration replay'
+    pending_migration=owner.call('partners/detail',id=concurrent_id)
+    assert pending_migration['members'][0]['activated'] is False and pending_migration['members'][0]['activated_at'] is None
+    assert pending_migration['members'][0]['invited_at']=='2025-01-02 10:00:00'
+    assert pending_migration['members'][0]['invite_mail_status'] is None, 'Legacy initial success must not be presented as the latest resend result'
+    assert pending_migration['members'][0]['invite_mail_error'] is None
+    assert pending_migration['partner']['activation_status']=='pending'
     # Rights updates apply to live sessions, and pausing a partner leaves its customers intact.
     detail=owner.call('partners/detail',id=pid);partner=detail['partner']
     owner.call('partners/save',{**partner,'can_create':False,'can_activate':True})
@@ -241,4 +340,55 @@ def run(Client,owner,anonymous,messages):
     p.csrf=p.call('partner/login',{'email':'partner-a@example.test','password':password})['csrf']
     p.call('partner/password',{'current_password':password,'password':'New-long-partner-password-123!'})
     p.call('partner/me',expected=401)
+    # Deletion closes partner access without damaging client accounts or financial history.
+    sql('DELETE FROM ab_rate_limits')
+    p.csrf=p.call('partner/login',{'email':'partner-a@example.test','password':'New-long-partner-password-123!'})['csrf']
+    pending=owner.call('partners/member',{'partner':pid,'name':'Pending partner user','email':'partner-pending-delete@example.test'})
+    pending_token=pending['invite_url'].split('#invite=')[1]
+    anonymous.call('partner/invite-check',{'token':pending_token})
+    pending_trial={**trial,'email':'partner-pending-referral@example.test','company':'Pending referral'}
+    anonymous.call('trial/signup',pending_trial,expected=201)
+    pending_trial_token=re.search(r'/activate.html#trial=([a-f0-9]{64})',messages[-1].get_body(('plain',)).get_content()).group(1)
+    snapshot=owner.call('partners/detail',id=pid)
+    deletion={'id':pid,'revision':snapshot['partner']['revision'],'confirmed':True}
+    anonymous.call('partners/delete',deletion,expected=401)
+    customer.call('partners/delete',deletion,expected=403)
+    p.call('partners/delete',deletion,expected=401)
+    bad=owner.csrf;owner.csrf='wrong';owner.call('partners/delete',deletion,expected=403);owner.csrf=bad
+    owner.call('partners/delete',{**deletion,'confirmed':False},expected=422)
+    owner.call('partners/delete',{**deletion,'revision':deletion['revision']-1},expected=409)
+    assert p.call('partner/me')['partner']['active'] is True
+    removed=owner.call('partners/delete',deletion)
+    assert removed['ok'] and removed['deleted_at'] and removed['replayed'] is False
+    assert owner.call('partners/delete',deletion)['replayed'] is True
+    assert all(partner['id']!=pid for partner in owner.call('partners/list')['partners'])
+    archived=next(partner for partner in owner.call('partners/list',include_deleted=1)['partners'] if partner['id']==pid)
+    assert archived['deleted_at'] and archived['active'] is False
+    history=owner.call('partners/detail',id=pid)
+    assert history['accounts']==snapshot['accounts']
+    assert history['commissions']==snapshot['commissions']
+    assert history['partner']['activation_status']=='activated', 'Deleting access must preserve real activation history'
+    assert all(not int(member['active']) for member in history['members'])
+    assert sql(f"SELECT COUNT(*) FROM ab_sessions s JOIN ab_partner_members m ON m.user_id=s.user_id WHERE m.partner_id='{pid}'")=='0'
+    p.call('partner/me',expected=401)
+    p.call('partner/login',{'email':'partner-a@example.test','password':'New-long-partner-password-123!'},expected=401)
+    anonymous.call('public/partner',code=code,expected=422)
+    anonymous.call('partner/invite-check',{'token':pending_token},expected=400)
+    anonymous.call('partner/invite-accept',{'token':pending_token,'password':password},expected=400)
+    owner.call('partners/save',{**history['partner'],'active':True},expected=404)
+    owner.call('partners/member',{'partner':pid,'id':member_id,'active':True},expected=404)
+    owner.call('partners/member',{'partner':pid,'name':'Disallowed','email':'deleted-partner-new@example.test'},expected=404)
+    owner.call('partners/approve',{'partner':pid,'tenant':tid,'confirmed':True},expected=404)
+    owner.call('partners/commission-record',receipt('AFTER-DELETION'),expected=404)
+    # Already registered amounts can still be settled in the preserved administration.
+    owner.call('partners/commission-status',{'partner':pid,'id':full['id'],'status':'paid','paid_on':today.isoformat(),'confirmed':True})
+    history=owner.call('partners/detail',id=pid)
+    assert next(entry for entry in history['commissions']['entries'] if entry['id']==full['id'])['status']=='paid'
+    assert len(history['commissions']['entries'])==len(snapshot['commissions']['entries'])
+    assert sql('SELECT COUNT(*) FROM ab_partner_commissions')==commission_count
+    customer.call('workspace')
+    assert q.call('partner/me')['partner']['id']==other
+    unattributed=anonymous.call('trial/accept',{'token':pending_trial_token,'password':password})
+    assert sql(f"SELECT COUNT(*) FROM ab_partner_accounts WHERE tenant_id='{unattributed['tenant_id']}'")=='0', 'A deleted partner cannot gain a pending referral after deletion'
+    print('PASS partner activation versus access status, persistent invite delivery failures/retry, sender/portal links, safe deletion, session/token/link revocation, customer and ledger preservation, archived settlement',flush=True)
     print('PASS one-step partner onboarding, mail idempotency, contact/login isolation, trial links, partner invitations, independent login/CSRF, rights, cross-partner isolation, customer approval, verified referral attribution, revocation, receipt-only commission accounting, annual receipts, exact rounding, immutable rates, month totals, payout transitions duplicate protection, concurrent onboarding/receipts and migration replay',flush=True)

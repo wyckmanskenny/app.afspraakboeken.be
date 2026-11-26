@@ -47,10 +47,27 @@ function welcome_content(string $name, string $company, string $url, bool $activ
     return ['subject' => 'Welkom bij Afspraakboeken.be', 'text' => $text, 'html' => $html];
 }
 
-/** SMTP acceptance is not a guarantee of inbox delivery. Never expose transport errors. */
-function deliver_mail(string $recipient, string $name, array $content, string $replyTo = ''): string {
+/** Only fixed error categories may leave the mailer; never return server transcripts. */
+function mail_failure_category(Throwable $error): string {
+    $message = $error->getMessage();
+    if ($error instanceof InvalidArgumentException) return 'invalid_message';
+    foreach ([
+        'Could not authenticate' => 'authentication',
+        'From address failed' => 'sender_rejected',
+        'recipients failed' => 'recipient_rejected',
+        'data not accepted' => 'delivery_rejected',
+        'Could not connect' => 'connection',
+        'connect() failed' => 'connection',
+        'Connection failed' => 'connection',
+    ] as $needle => $category) if (stripos($message, $needle) !== false) return $category;
+    return 'unknown';
+}
+
+/** SMTP acceptance is not a guarantee of inbox delivery. */
+function deliver_mail_result(string $recipient, string $name, array $content, string $replyTo = ''): array {
     $config = mail_configuration();
     $status = 'not_configured';
+    $failure = 'not_configured';
     if ($config !== null) {
         try {
             require_once __DIR__ . '/vendor/phpmailer/src/Exception.php';
@@ -69,9 +86,12 @@ function deliver_mail(string $recipient, string $name, array $content, string $r
             $mail->Timeout = 10;
             $mail->getSMTPInstance()->Timelimit = 15;
             $mail->CharSet = 'UTF-8';
-            $fromName = $content['from_name'] ?? 'Afspraakboeken.be';
+            $fromName = $content['from_name'] ?? ($config['from_name'] ?? 'Afspraakboeken.be');
             if(!is_string($fromName)||strlen($fromName)>480||preg_match('/[\r\n\x00]/',$fromName))throw new InvalidArgumentException('Invalid sender name');
-            $mail->setFrom($config['from_email'], $fromName);
+            // Templates may supply a server-defined sender. Public request fields never choose it.
+            $fromEmail = $content['from_email'] ?? $config['from_email'];
+            if(!is_string($fromEmail)||preg_match('/[\r\n\x00]/',$fromEmail)||!filter_var($fromEmail,FILTER_VALIDATE_EMAIL))throw new InvalidArgumentException('Invalid sender address');
+            $mail->setFrom($fromEmail, $fromName);
             $replyTo = $replyTo ?: ($config['reply_to'] ?? '');
             if ($replyTo !== '') $mail->addReplyTo($replyTo);
             $mail->addAddress($recipient, $name);
@@ -81,12 +101,19 @@ function deliver_mail(string $recipient, string $name, array $content, string $r
             $mail->Body = $content['html'];
             $mail->AltBody = $content['text'];
             $status = $mail->send() ? 'sent' : 'failed';
+            $failure = $status === 'sent' ? null : 'unknown';
         } catch (Throwable $error) {
             // Do not expose SMTP credentials, server transcripts or invitation tokens.
             $status = 'failed';
+            $failure = mail_failure_category($error);
         }
     }
-    return $status;
+    return ['status' => $status, 'error' => $failure];
+}
+
+/** Backwards-compatible status for existing customer notifications. */
+function deliver_mail(string $recipient, string $name, array $content, string $replyTo = ''): string {
+    return deliver_mail_result($recipient, $name, $content, $replyTo)['status'];
 }
 
 /** Called only after the account and invitation are committed. */

@@ -53,3 +53,69 @@ test('A changed commission agreement stops receipt entry and never silently retr
  const ui=await setup((route,data)=>route==='partners/list'?result({partners:[partner]}):route==='partners/detail'?result(detail):route==='partners/commission-record'?result({error:'Het commissiepercentage is gewijzigd. Vernieuw de partnergegevens.'},409):result({error:'Unexpected request'},500),{entry:'partners-admin.js',mount:true});
  try{await open(ui);ui.document.querySelector('[data-pa=commission-new]').click();const f=ui.document.querySelector('[data-pa-form=commission]');f.elements.tenant.value=tenant;f.elements.invoice_reference.value='STALE-RATE';f.elements.received_on.value='2026-10-31';f.elements.base_amount.value='180';f.elements.confirmed.checked=true;submit(ui,f);await until(()=>f.querySelector('.form-error').textContent.includes('commissiepercentage is gewijzigd'));assert.equal(ui.calls.filter(c=>c.route==='partners/commission-record').length,1);assert.equal(ui.calls.find(c=>c.route==='partners/commission-record').data.expected_rate_bps,2025);assert.equal(f.elements.base_amount.value,'180');assert.equal(f.querySelector('button[type=submit]').disabled,false);}finally{await ui.close();}
 });
+test('Partner activation is distinct from allowed access and persisted mail errors explain recovery',async()=>{
+ const waiting={...partner,activation_status:'pending',activated_members:0,member_count:1};
+ const activated={...partner,id:'6'.repeat(32),name:'Activated partner',active:false,activation_status:'activated',activated_members:1,member_count:1};
+ const member={id:'7'.repeat(32),name:'Contact',email:'partner@example.test',active:1,activated:false,activated_at:null,invited_at:'2026-10-01 12:00:00',invite_mail_status:'failed',invite_mail_error:'sender_rejected',invite_expires_at:'2026-10-02 12:00:00'};
+ let resent=false;
+ const ui=await setup((route,data)=>{
+  if(route==='partners/list')return result({partners:[waiting,activated]});
+  if(route==='partners/detail')return result({...detail,partner:waiting,members:[resent?{...member,invite_mail_status:'sent',invite_mail_error:null,invite_expires_at:'2099-12-02 12:00:00'}:member]});
+  if(route==='partners/member'){resent=true;return result({mail:'sent',invite_url:'https://partners.afspraakboeken.be/#invite=abc'});}
+  return result({error:'Unexpected request'},500);
+ },{entry:'partners-admin.js',mount:true});
+ try{
+  await until(()=>ui.document.querySelector('[data-pa=open]'));
+  const rows=[...ui.document.querySelectorAll('tbody tr')];
+  assert.ok(rows[0].textContent.includes('Wacht op activatie'));assert.ok(rows[0].textContent.includes('Toegestaan'));
+  assert.ok(rows[1].textContent.includes('Geactiveerd'));assert.ok(rows[1].textContent.includes('Gepauzeerd'));
+  rows[0].querySelector('[data-pa=open]').click();await until(()=>ui.document.querySelector('[data-invite-status=failed]'));
+  assert.ok(ui.document.querySelector('[data-invite-status=failed]').textContent.includes('hallo@afspraakboeken.be nog niet als afzender toe'));
+  assert.ok(ui.document.querySelector('[data-invite-status=failed]').textContent.includes('Activatielink verlopen'));
+  ui.document.querySelector('[data-pa=invite]').click();await until(()=>ui.document.querySelector('[data-invite-status=sent]'));
+  assert.equal(ui.calls.filter(c=>c.route==='partners/detail').length,2);
+  assert.ok(ui.document.querySelector('.crm-task').textContent.includes('Wacht op activatie'));
+  assert.ok(ui.document.querySelector('[data-invite-status=sent]').textContent.includes('mailserver heeft de e-mail aangenomen'));
+  assert.equal(ui.calls.find(c=>c.route==='partners/member').data.id,member.id);
+ }finally{await ui.close();}
+});
+test('Older partners without a login get a prefilled invitation form',async()=>{
+ const waiting={...partner,activation_status:'not_invited',member_count:0,activated_members:0};
+ const ui=await setup(route=>route==='partners/list'?result({partners:[waiting]}):result({...detail,partner:waiting,members:[]}),{entry:'partners-admin.js',mount:true});
+ try{await open(ui);const f=ui.document.querySelector('[data-pa-form=member]');assert.equal(f.elements.name.value,partner.contact_name);assert.equal(f.elements.email.value,partner.email);assert.ok(ui.document.getElementById('app').textContent.includes('Nog niet uitgenodigd'));}finally{await ui.close();}
+});
+test('Deleting requires its own review, preserves revision on error and returns to the partner list',async()=>{
+ let deleted=false,attempts=0;
+ const ui=await setup((route,data)=>{
+  if(route==='partners/list')return result({partners:deleted?[]:[partner]});
+  if(route==='partners/detail')return result(detail);
+  if(route==='partners/delete'){if(++attempts===1)return result({error:'Deze partner is elders gewijzigd. Vernieuw de gegevens.'},409);deleted=true;return result({ok:true,id,deleted_at:'2026-11-26 12:00:00',replayed:false});}
+  return result({error:'Unexpected request'},500);
+ },{entry:'partners-admin.js',mount:true});
+ try{
+  await open(ui);ui.document.querySelector('[data-pa=delete]').click();let f=ui.document.querySelector('[data-pa-form=delete]');
+  assert.ok(f);assert.equal(ui.calls.some(c=>c.route==='partners/delete'),false);
+  assert.ok(ui.document.getElementById('app').textContent.includes('Gekoppelde klanten en commissies blijven behouden.'));
+  assert.equal(f.querySelector('input[type=checkbox]'),null);
+  submit(ui,f);await until(()=>f.querySelector('.form-error').textContent.includes('elders gewijzigd'));
+  assert.equal(ui.calls.find(c=>c.route==='partners/delete').data.id,id);assert.equal(ui.calls.find(c=>c.route==='partners/delete').data.revision,1);assert.equal(ui.calls.find(c=>c.route==='partners/delete').data.confirmed,true);
+  assert.equal(f.querySelector('button[type=submit]').disabled,false);
+  submit(ui,f);await until(()=>deleted&&ui.document.querySelector('[data-pa=new]'));
+  assert.equal(ui.document.querySelector('[data-pa-form=delete]'),null);assert.ok(ui.document.getElementById('toast').textContent.includes('Klanten en commissies blijven behouden'));
+ }finally{await ui.close();}
+});
+test('Archived partners can be found with a filter and retain commission settlement without access controls',async()=>{
+ const archived={...partner,deleted_at:'2026-11-25 12:00:00',active:false,activation_status:'activated',member_count:1,activated_members:1};
+ const entry={id:entryId,tenant_id:tenant,customer_name:'Paid business',invoice_reference:'INV-OPEN',month:'2026-10',received_on:'2026-10-01',base_cents:10000,rate_bps:2025,amount_cents:2025,status:'approved',paid_at:null};
+ const archivedDetail={...detail,partner:archived,members:[{id:'7'.repeat(32),name:'Activated Contact',email:'partner@example.test',active:0,activated:true,activated_at:'2026-10-03 12:00:00',invite_mail_status:'sent'}],accounts:detail.accounts.map(a=>({...a,activation_requested_at:'2026-10-01 12:00:00'})),commissions:{months:[],entries:[entry]}};
+ const ui=await setup((route,data,params)=>route==='partners/list'?result({partners:params.get('include_deleted')==='1'?[archived]:[]}):route==='partners/detail'?result(archivedDetail):result({error:'Unexpected request'},500),{entry:'partners-admin.js',mount:true});
+ try{
+  await until(()=>ui.document.querySelector('[data-pa-include-deleted]'));const toggle=ui.document.querySelector('[data-pa-include-deleted]');toggle.checked=true;toggle.dispatchEvent(new ui.window.Event('change',{bubbles:true}));
+  await until(()=>ui.document.querySelector('[data-pa=open]'));assert.equal(ui.calls.filter(c=>c.route==='partners/list')[1].params.get('include_deleted'),'1');
+  assert.ok(ui.document.querySelector('tbody').textContent.includes('Verwijderd'));ui.document.querySelector('[data-pa=open]').click();await until(()=>ui.document.querySelector('[data-pa=commission-paid]'));
+  for(const selector of ['[data-pa=delete]','[data-pa=invite]','[data-pa=member-active]','[data-pa=copy-link]','[data-pa=commission-new]','[data-pa=approve]','[data-pa-form=partner]','[data-pa-form=member]'])assert.equal(ui.document.querySelector(selector),null,selector);
+  assert.ok(ui.document.querySelector('[data-pa=commission-void]'));
+  assert.ok(ui.document.getElementById('app').textContent.includes('openstaande commissies kun je hieronder nog afhandelen'));
+  assert.ok(ui.document.querySelector('.crm-task').textContent.includes('Geactiveerd'));assert.ok(ui.document.querySelector('.crm-task').textContent.includes('Toegang ingetrokken'));
+ }finally{await ui.close();}
+});

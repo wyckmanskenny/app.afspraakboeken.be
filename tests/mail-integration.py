@@ -50,8 +50,8 @@ class SMTPHandler(socketserver.BaseRequestHandler):
                     username = base64.b64decode(stream.readline().strip()).decode()
                     write('334 '+base64.b64encode(b'Password:').decode())
                     password = base64.b64decode(stream.readline().strip()).decode()
-                    write('235 Authenticated' if username=='mailer@example.test' and password=='test-smtp-password' else '535 Authentication rejected')
-                elif command.startswith('MAIL FROM:'): recipients=[]; write('250 OK')
+                    write('235 Authenticated' if username=='mailer@example.test' and password=='test-smtp-password' and not state.get('reject_auth') else '535 Authentication rejected')
+                elif command.startswith('MAIL FROM:'): recipients=[]; write('550 Sender rejected' if state.get('reject_sender') else '250 OK')
                 elif command.startswith('RCPT TO:'): recipients.append(command[8:].strip('<>')); write('250 OK')
                 elif command == 'DATA':
                     write('354 End with a dot'); data=[]
@@ -144,7 +144,7 @@ try:
     from crm_integration import run as run_crm_tests
     run_crm_tests(Client,owner,anonymous,messages)
     from partner_integration import run as run_partner_tests
-    run_partner_tests(Client,owner,anonymous,messages)
+    run_partner_tests(Client,owner,anonymous,messages,envelopes,config,state)
 
     from booking_mail_integration import run as run_booking_mail_tests
     run_booking_mail_tests(Client,owner,anonymous,messages,envelopes,config,state)

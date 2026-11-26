@@ -68,3 +68,9 @@ Bestaande afspraken van vóór deze release worden niet achteraf gemaild. Handma
 ## Afspraakherinneringen (0.21.0)
 
 Bedrijven kiezen zelf voor 3 dagen vooraf, 1 dag vooraf (standaard aan) en/of de dag zelf. Antwoorden gaan via Reply-To naar hun actuele contactadres, zonder extra uitleg in de mailtekst. De bestaande kalendercron verzorgt de verzending. Zie [APPOINTMENT-REMINDERS.md](APPOINTMENT-REMINDERS.md) voor planning, rechten en verificatie.
+
+## Partneruitnodigingen (0.22.1)
+
+De welkomstmail voor partners wordt verstuurd vanaf **hallo@afspraakboeken.be**, met een persoonlijke wachtwoordlink en een aparte link naar het partnerportaal. De bestaande SMTP-instellingen moeten voor deze afzender toestemming hebben. Richt de mailbox of geautoriseerde afzender in bij de mailprovider; bewaar authenticatiegegevens uitsluitend in de privéconfiguratie. Andere klantmails blijven hun bestaande afzender gebruiken.
+
+Superadmin ziet de laatste verzendstatus en een veilige foutcategorie bij **Partners → Beheren → Partnergebruikers**. Een fout bij SMTP-aanmelding vraagt om controle van mailboxgebruikersnaam/wachtwoord; een geweigerde afzender vraagt om toestemming voor hallo@afspraakboeken.be. Bij verbindingsproblemen controleer je host, poort en versleuteling. Er worden geen SMTP-transcripten, wachtwoorden of uitnodigingstokens in foutmeldingen getoond. Een partner blijft bewaard als verzending mislukt, zodat opnieuw uitnodigen mogelijk blijft.
