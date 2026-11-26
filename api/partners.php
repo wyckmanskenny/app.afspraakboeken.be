@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 function ensure_partners_schema(): void {
-    if(row("SELECT id FROM ab_audit WHERE action='schema.partners_v3' LIMIT 1"))return;
+    if(row("SELECT id FROM ab_audit WHERE action='schema.partners_v4' LIMIT 1"))return;
     $lock='ab-partners-'.substr(hash('sha256',configuration()['db']['name']),0,32);
     if((int)query('SELECT GET_LOCK(?,10)',[$lock])->fetchColumn()!==1)fail(503,'De partneromgeving wordt klaargezet. Probeer opnieuw.');
     try{
@@ -55,6 +55,29 @@ function ensure_partners_schema(): void {
             // Leave historical member delivery unknown rather than attach an old success to a later invite.
             audit(null,'schema.partners_v3','3');
         }
+        if(!row("SELECT id FROM ab_audit WHERE action='schema.partners_v4' LIMIT 1")){
+            // A mailbox can have one app identity and one partner identity. Keep existing
+            // user IDs, passwords, invitations and sessions untouched during this migration.
+            if(!row("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ab_users' AND COLUMN_NAME='login_scope'")){
+                connection()->exec("ALTER TABLE ab_users ADD COLUMN login_scope VARCHAR(7) GENERATED ALWAYS AS (CASE WHEN role='partner' THEN 'partner' ELSE 'app' END) STORED");
+            }
+            if(!row("SELECT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ab_users' AND INDEX_NAME='ab_user_email_scope'")){
+                connection()->exec('ALTER TABLE ab_users ADD UNIQUE KEY ab_user_email_scope(email,login_scope)');
+            }
+            // Install and verify the replacement before dropping the legacy constraint.
+            // Each step may have committed independently and must be safe to resume.
+            $scopeIndex=query("SELECT COLUMN_NAME,NON_UNIQUE,SUB_PART FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ab_users' AND INDEX_NAME='ab_user_email_scope' ORDER BY SEQ_IN_INDEX")->fetchAll();
+            if(count($scopeIndex)!==2||array_column($scopeIndex,'COLUMN_NAME')!==['email','login_scope']||(int)$scopeIndex[0]['NON_UNIQUE']!==0||(int)$scopeIndex[1]['NON_UNIQUE']!==0||$scopeIndex[0]['SUB_PART']!==null||$scopeIndex[1]['SUB_PART']!==null){
+                throw new RuntimeException('The per-portal email constraint could not be verified.');
+            }
+            $legacyIndexes=query("SELECT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ab_users' AND NON_UNIQUE=0 AND INDEX_NAME<>'PRIMARY' GROUP BY INDEX_NAME HAVING COUNT(*)=1 AND MAX(COLUMN_NAME)='email'")->fetchAll();
+            foreach($legacyIndexes as $index){
+                // Index names originate from metadata but still require identifier quoting.
+                $name=str_replace('`','``',$index['INDEX_NAME']);
+                connection()->exec("ALTER TABLE ab_users DROP INDEX `$name`");
+            }
+            audit(null,'schema.partners_v4','4');
+        }
     }finally{query('SELECT RELEASE_LOCK(?)',[$lock]);}
 }
 
@@ -70,7 +93,7 @@ function partner_percent_bps(mixed $value): int {
 function partner_percent_label(int $bps): string {return intdiv($bps,100).'.'.str_pad((string)($bps%100),2,'0',STR_PAD_LEFT);}
 
 function partner_welcome_mail(string $email,string $name,string $company,string $url): array {
-    $content=lifecycle_mail('Welkom partner bij Afspraakboeken',"Dag $name,\n\nWelkom als partner van Afspraakboeken.be! Je partneromgeving voor $company staat klaar.\n\nKies eerst je eigen wachtwoord. Daarna kun je je persoonlijke link delen, klanten 14 dagen gratis laten proberen en je aangebrachte klanten en commissies opvolgen.\n\nDeze persoonlijke link is 24 uur geldig en werkt één keer. Deel hem niet met anderen.",'Mijn wachtwoord instellen',$url);
+    $content=lifecycle_mail('Welkom partner bij Afspraakboeken',"Dag $name,\n\nWelkom als partner van Afspraakboeken.be! Je partneromgeving voor $company staat klaar.\n\nKies eerst je eigen wachtwoord. Daarna kun je je persoonlijke link delen, klanten 14 dagen gratis laten proberen en je aangebrachte klanten en commissies opvolgen.\n\nHeb je al een klantaccount? Je kunt hetzelfde e-mailadres gebruiken. Voor je partnerportaal stel je hieronder een eigen wachtwoord in.\n\nDeze persoonlijke link is 24 uur geldig en werkt één keer. Deel hem niet met anderen.",'Mijn wachtwoord instellen',$url);
     $portal=partner_portal_url();$safePortal=htmlspecialchars($portal,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
     $content['from_email']='hallo@afspraakboeken.be';
     $content['text'].="\n\nAl een wachtwoord ingesteld? Log voortaan in op je partnerportaal:\n$portal";
@@ -214,7 +237,7 @@ function partner_create_customer(array $u,array $data): array {
     $result=transaction(function()use($u,$data){$p=partner_locked($u);if(!$p['can_create'])fail(403,'Je mag alleen klanten aanbrengen via je persoonlijke link.');
         $name=text($data,'name',120,true);$admin=text($data,'admin_name',120,true);$mail=email($data);$sector=text($data,'sector',80);$key=crm_key($data);$hash=hash('sha256',encoded([$name,$admin,$mail,$sector]));
         $old=row('SELECT tenant_id,request_hash FROM ab_partner_accounts WHERE partner_id=? AND request_key=?',[$p['id'],$key]);if($old){if(!hash_equals($old['request_hash'],$hash))fail(409,'Dit verzoek is al met andere gegevens verwerkt.');return ['tenant_id'=>$old['tenant_id'],'replayed'=>true];}
-        if(row('SELECT id FROM ab_users WHERE email=?',[$mail]))fail(409,'Dit e-mailadres is al in gebruik. Neem contact op met Afspraakboeken.be.');
+        if(row("SELECT id FROM ab_users WHERE email=? AND role IN ('admin','superadmin')",[$mail]))fail(409,'Dit e-mailadres heeft al een account in de app. Neem contact op met Afspraakboeken.be.');
         $id=uid();$uid=uid();query("INSERT INTO ab_tenants(id,name,sector,contact_email,plan_type,monthly_cents,lifetime_cents,billing_json,settings_json) VALUES (?,?,?,?,'monthly',0,0,'{}',?)",[$id,$name,$sector,$mail,encoded(default_settings())]);query("INSERT INTO ab_users(id,tenant_id,email,name,role) VALUES (?,?,?,?,'admin')",[$uid,$id,$mail,$admin]);
         query("INSERT INTO ab_partner_accounts(tenant_id,partner_id,source,created_by,request_key,request_hash,activation_requested_at) VALUES (?,?,'manual',?,?,?,UTC_TIMESTAMP())",[$id,$p['id'],$u['id'],$key,$hash]);
         $url=invite_for($uid);audit($u['id'],'partner.customer_created',$id);return ['tenant_id'=>$id,'replayed'=>false,'url'=>$url,'email'=>$mail,'admin'=>$admin,'company'=>$name];
@@ -309,7 +332,7 @@ function partner_admin_save(array $u,array $data): array {
                     return ['id'=>$old['id'],'replayed'=>true,'mail'=>$old['invite_mail_status']??'not_requested'];
                 }
             }
-            if($invite&&row('SELECT id FROM ab_users WHERE email=?',[$mail]))fail(409,'Dit e-mailadres heeft al een account. Gebruik een ander aanmeldadres.');
+            if($invite&&row("SELECT id FROM ab_users WHERE email=? AND role='partner'",[$mail]))fail(409,'Dit e-mailadres heeft al een partneraccount. Gebruik een ander aanmeldadres of beheer de bestaande partner.');
             $id=uid();query('INSERT INTO ab_partners(id,name,email,contact_name,phone,commission_bps,referral_code,active,can_create,can_activate,create_request_key,create_request_hash,created_by,invite_mail_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[$id,$name,$mail,$contact,$phone,$rate,bin2hex(random_bytes(12)),(int)$active,(int)$create,(int)$activate,$key,$key?$hash:null,$u['id'],$invite?'pending':null]);
             $result=['id'=>$id,'replayed'=>false];
             if($invite){
@@ -331,7 +354,7 @@ function partner_admin_member(array $u,array $data): array {
             if(!$member['active']||!$p['active'])fail(422,'Activeer eerst de partner en gebruiker.');
         }else{
             if(!$p['active'])fail(422,'Activeer eerst de partner.');
-            $mail=email($data);$name=text($data,'name',120,true);if(row('SELECT id FROM ab_users WHERE email=?',[$mail]))fail(409,'Dit e-mailadres heeft al een account. Gebruik een ander aanmeldadres.');
+            $mail=email($data);$name=text($data,'name',120,true);if(row("SELECT id FROM ab_users WHERE email=? AND role='partner'",[$mail]))fail(409,'Dit e-mailadres heeft al een partneraccount. Gebruik een ander aanmeldadres of beheer de bestaande partner.');
             $id=uid();query("INSERT INTO ab_users(id,email,name,role) VALUES (?,?,?,'partner')",[$id,$mail,$name]);query('INSERT INTO ab_partner_members(user_id,partner_id) VALUES (?,?)',[$id,$pid]);$member=['email'=>$mail,'name'=>$name];
         }
         $url=partner_invite_link($id);audit($u['id'],'partner.invited',$id);

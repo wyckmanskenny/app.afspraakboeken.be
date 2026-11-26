@@ -145,6 +145,8 @@ try:
     run_crm_tests(Client,owner,anonymous,messages)
     from partner_integration import run as run_partner_tests
     run_partner_tests(Client,owner,anonymous,messages,envelopes,config,state)
+    from dual_portal_integration import run as run_dual_portal_tests
+    run_dual_portal_tests(Client,owner,anonymous,messages,envelopes)
 
     from booking_mail_integration import run as run_booking_mail_tests
     run_booking_mail_tests(Client,owner,anonymous,messages,envelopes,config,state)

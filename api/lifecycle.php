@@ -43,7 +43,7 @@ function trial_signup(array $data): array {
     if(mail_configuration()===null)fail(503,'De proefperiode kan tijdelijk niet automatisch starten. Vraag vrijblijvend informatie op; we helpen je persoonlijk verder.');
     limit_rate('trial-signup-ip',client_ip(),5,3600);limit_rate('trial-signup-email',$email,3,3600);
     // Do not reserve a login address or create a company until its owner verifies it.
-    if(row('SELECT id FROM ab_users WHERE email=?',[$email]))return ['message'=>'Controleer je e-mail. Heb je al een account? Log dan in met je bestaande gegevens.'];
+    if(row("SELECT id FROM ab_users WHERE email=? AND role IN ('admin','superadmin')",[$email]))return ['message'=>'Controleer je e-mail. Heb je al een account? Log dan in met je bestaande gegevens.'];
     $lock='ab-signup-'.substr(hash('sha256',$email),0,40);
     if((int)query('SELECT GET_LOCK(?,0)',[$lock])->fetchColumn()!==1)fail(429,'Er wordt al een bevestiging verstuurd.');
     try{
@@ -68,7 +68,7 @@ function trial_accept(array $data,bool $accept): array {
         $signup=row('SELECT * FROM ab_trial_signups WHERE token_hash=? FOR UPDATE',[$hash]);
         if(!$signup||$signup['expires_at']<=gmdate('Y-m-d H:i:s'))fail(400,'Deze bevestigingslink is ongeldig of verlopen. Vraag opnieuw een proefperiode aan.');
         if(!$accept)return ['name'=>$signup['name'],'company'=>$signup['company'],'email'=>$signup['email'],'trial'=>true];
-        if(row('SELECT id FROM ab_users WHERE email=?',[$signup['email']]))fail(409,'Dit e-mailadres heeft al een account. Meld je aan.');
+        if(row("SELECT id FROM ab_users WHERE email=? AND role IN ('admin','superadmin')",[$signup['email']]))fail(409,'Dit e-mailadres heeft al een account in de app. Meld je daar aan.');
         $password=hash_password(password($data));$id=uid();$user=uid();
         query('INSERT INTO ab_tenants(id,name,sector,contact_email,active,plan_type,monthly_cents,lifetime_cents,billing_json,settings_json) VALUES (?,?,?,?,1,\'annual\',0,0,?,?)',[$id,$signup['company'],$signup['sector'],$signup['email'],encoded(['email'=>$signup['email']]),encoded(default_settings())]);
         query('INSERT INTO ab_users(id,tenant_id,email,name,role,password_hash) VALUES (?,?,?,?,\'admin\',?)',[$user,$id,$signup['email'],$signup['name'],$password]);
