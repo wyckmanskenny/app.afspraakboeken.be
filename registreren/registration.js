@@ -16,7 +16,7 @@ if(trial){
  document.getElementById('form-description').textContent='Maak je eigen omgeving aan. Je proefperiode begint na e-mailbevestiging. Geen creditcard nodig.';
  form.querySelectorAll('[data-info-field]').forEach(el=>el.hidden=true);
  button.innerHTML='Start mijn gratis proefperiode ';
- document.getElementById('registration-reassurance').textContent='Daarna €15 per gebruiker/maand, jaarlijks €180 excl. btw. Je wordt nooit automatisch betalend klant.';
+ document.getElementById('registration-reassurance').textContent='Prijs na je proefperiode op aanvraag. We spreken eerst samen de formule af. Je wordt nooit automatisch betalend klant.';
  document.querySelector('.registration-footer').textContent='01 Gegevens · 02 E-mail bevestigen · 03 Meteen aan de slag';
  showForm();
 }

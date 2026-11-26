@@ -1,13 +1,59 @@
 <?php
 declare(strict_types=1);
 function ensure_partners_schema(): void {
-    if(row("SELECT id FROM ab_audit WHERE action='schema.partners_v1' LIMIT 1"))return;
+    if(row("SELECT id FROM ab_audit WHERE action='schema.partners_v2' LIMIT 1"))return;
     $lock='ab-partners-'.substr(hash('sha256',configuration()['db']['name']),0,32);
     if((int)query('SELECT GET_LOCK(?,10)',[$lock])->fetchColumn()!==1)fail(503,'De partneromgeving wordt klaargezet. Probeer opnieuw.');
-    try{if(!row("SELECT id FROM ab_audit WHERE action='schema.partners_v1' LIMIT 1")){
-        foreach(explode(';',file_get_contents(__DIR__.'/partners.sql')) as $sql)if(trim($sql)!=='')connection()->exec($sql);
-        audit(null,'schema.partners_v1','1');
-    }}finally{query('SELECT RELEASE_LOCK(?)',[$lock]);}
+    try{
+        if(!row("SELECT id FROM ab_audit WHERE action='schema.partners_v1' LIMIT 1")){
+            foreach(explode(';',file_get_contents(__DIR__.'/partners.sql')) as $sql)if(trim($sql)!=='')connection()->exec($sql);
+            audit(null,'schema.partners_v1','1');
+        }
+        if(!row("SELECT id FROM ab_audit WHERE action='schema.partners_v2' LIMIT 1")){
+            // Each additive DDL step is checked independently: an interrupted migration can safely resume.
+            $columns=[
+                'ab_partners'=>[
+                    'contact_name'=>"VARCHAR(120) NOT NULL DEFAULT ''",'phone'=>"VARCHAR(40) NOT NULL DEFAULT ''",
+                    'commission_bps'=>'SMALLINT UNSIGNED NOT NULL DEFAULT 0',
+                    'create_request_key'=>'VARCHAR(64) NULL','create_request_hash'=>'CHAR(64) NULL',
+                    'created_by'=>'CHAR(32) NULL','invite_mail_status'=>'VARCHAR(24) NULL'
+                ],
+                'ab_partner_commissions'=>[
+                    'commission_month'=>'CHAR(7) NULL','received_on'=>'DATE NULL','base_cents'=>'INT UNSIGNED NULL',
+                    'rate_bps'=>'SMALLINT UNSIGNED NULL','request_key'=>'VARCHAR(64) NULL','request_hash'=>'CHAR(64) NULL',
+                    'recorded_by'=>'CHAR(32) NULL','voided_at'=>'DATETIME NULL'
+                ]
+            ];
+            foreach($columns as $table=>$definitions)foreach($definitions as $column=>$definition){
+                if(!row('SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?',[$table,$column]))connection()->exec("ALTER TABLE $table ADD COLUMN $column $definition");
+            }
+            foreach([
+                ['ab_partners','partner_creation_request','UNIQUE KEY partner_creation_request(create_request_key)'],
+                ['ab_partner_commissions','partner_commission_request','UNIQUE KEY partner_commission_request(partner_id,request_key)'],
+                ['ab_partner_commissions','partner_commission_month','INDEX partner_commission_month(partner_id,commission_month,status)']
+            ] as [$table,$name,$definition]){
+                if(!row('SELECT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND INDEX_NAME=?',[$table,$name]))connection()->exec("ALTER TABLE $table ADD $definition");
+            }
+            audit(null,'schema.partners_v2','2');
+        }
+    }finally{query('SELECT RELEASE_LOCK(?)',[$lock]);}
+}
+
+function partner_percent_bps(mixed $value): int {
+    if(!is_string($value)&&!is_int($value))fail(422,'Vul een commissiepercentage van 0 tot en met 100 in, met maximaal twee decimalen.');
+    $value=str_replace(',','.',trim((string)$value));
+    if(!preg_match('/^(0|[1-9][0-9]{0,2})(?:\.([0-9]{1,2}))?$/D',$value,$match))fail(422,'Vul een commissiepercentage van 0 tot en met 100 in, met maximaal twee decimalen.');
+    $bps=(int)$match[1]*100+(int)str_pad($match[2]??'',2,'0');
+    if($bps>10000)fail(422,'Het commissiepercentage mag niet hoger dan 100 zijn.');
+    return $bps;
+}
+
+function partner_percent_label(int $bps): string {return intdiv($bps,100).'.'.str_pad((string)($bps%100),2,'0',STR_PAD_LEFT);}
+
+function partner_welcome_mail(string $email,string $name,string $company,string $url): string {
+    $content=lifecycle_mail('Welkom partner bij Afspraakboeken',"Dag $name,\n\nWelkom als partner van Afspraakboeken.be! Je partneromgeving voor $company staat klaar.\n\nKies eerst je eigen wachtwoord. Daarna kun je je persoonlijke link delen, klanten 14 dagen gratis laten proberen en je aangebrachte klanten en commissies opvolgen.\n\nDeze persoonlijke link is 24 uur geldig en werkt één keer. Deel hem niet met anderen.",'Mijn wachtwoord instellen',$url);
+    $content['html']=str_replace('background:#264653;color:white','background:#e9c46a;color:#264653',$content['html']);
+    return deliver_mail($email,$name,$content);
 }
 function partner_code(mixed $code): ?array {
     if($code===null||$code==='')return null;
@@ -58,17 +104,63 @@ function partner_invite_accept(array $data,bool $accept): array {
 }
 function partner_view(array $p): array {
     foreach(['active','can_create','can_activate'] as $k)$p[$k]=(bool)$p[$k];$p['revision']=(int)$p['revision'];
-    $p['referral_url']=rtrim(configuration()['app_url'],'/').'/registreren/?mode=trial&partner='.$p['referral_code'];return $p;
+    $p['commission_bps']=(int)$p['commission_bps'];$p['rate_bps']=$p['commission_bps'];$p['commission_percent']=partner_percent_label($p['commission_bps']);
+    $p['referral_url']=rtrim(configuration()['app_url'],'/').'/registreren/?mode=trial&partner='.$p['referral_code'];$p['trial_url']=$p['referral_url'];
+    unset($p['create_request_key'],$p['create_request_hash'],$p['created_by'],$p['invite_mail_status']);return $p;
+}
+
+function partner_trial_link(array $u,array $data): array {
+    $campaign=text($data,'campaign',60);
+    if($campaign!==''&&!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,59}$/D',$campaign))fail(422,'Gebruik voor het linklabel alleen letters, cijfers, streepjes en underscores.');
+    $p=row('SELECT * FROM ab_partners WHERE id=? AND active=1',[$u['partner_id']]);if(!$p)fail(403,'Deze partneromgeving is niet actief.');
+    $url=partner_view($p)['trial_url'];
+    if($campaign!=='')$url.='&'.http_build_query(['utm_source'=>'partner','utm_medium'=>'referral','utm_campaign'=>$campaign],'','&',PHP_QUERY_RFC3986);
+    return ['url'=>$url,'days'=>14];
 }
 function partner_accounts(string $id): array {
     // Deliberate allowlist: no billing, passwords, customer CRM or appointment content.
     return query('SELECT a.tenant_id,t.name,t.contact_email AS email,t.active,a.source,a.created_at,a.activation_requested_at,a.activated_at,tr.ends_at AS trial_end,tr.converted_at FROM ab_partner_accounts a JOIN ab_tenants t ON t.id=a.tenant_id LEFT JOIN ab_trials tr ON tr.tenant_id=t.id WHERE a.partner_id=? ORDER BY a.created_at DESC,a.tenant_id',[$id])->fetchAll();
 }
+
+function partner_commission_report(string $id): array {
+    // Keep monetary totals over the complete ledger, even if the detailed table reaches its display limit.
+    $months=query("SELECT COALESCE(commission_month,DATE_FORMAT(created_at,'%Y-%m')) AS month,
+        COALESCE(SUM(CASE WHEN status IN ('approved','paid') THEN base_cents ELSE 0 END),0) AS base_cents,
+        COALESCE(SUM(CASE WHEN status IN ('approved','paid') THEN amount_cents ELSE 0 END),0) AS amount_cents,
+        COALESCE(SUM(CASE WHEN status='approved' THEN amount_cents ELSE 0 END),0) AS unpaid_cents,
+        COALESCE(SUM(CASE WHEN status='paid' THEN amount_cents ELSE 0 END),0) AS paid_cents
+        FROM ab_partner_commissions WHERE partner_id=? AND currency='EUR' GROUP BY month ORDER BY month DESC",[$id])->fetchAll();
+    foreach($months as &$month)foreach(['base_cents','amount_cents','unpaid_cents','paid_cents'] as $field)$month[$field]=(int)$month[$field];unset($month);
+    $entries=query("SELECT c.id,c.tenant_id,t.name AS customer_name,c.invoice_reference,
+        COALESCE(c.commission_month,DATE_FORMAT(c.created_at,'%Y-%m')) AS month,c.received_on,c.base_cents,c.rate_bps,c.amount_cents,c.currency,c.status,c.paid_at,c.voided_at,c.created_at
+        FROM ab_partner_commissions c JOIN ab_tenants t ON t.id=c.tenant_id WHERE c.partner_id=? AND c.currency='EUR' ORDER BY c.created_at DESC,c.id DESC LIMIT 1001",[$id])->fetchAll();
+    $truncated=count($entries)>1000;if($truncated)array_pop($entries);
+    foreach($entries as &$entry){foreach(['base_cents','rate_bps','amount_cents'] as $field)if($entry[$field]!==null)$entry[$field]=(int)$entry[$field];$entry['paid_on']=$entry['paid_at']?(new DateTimeImmutable($entry['paid_at'],new DateTimeZone('UTC')))->setTimezone(new DateTimeZone('Europe/Brussels'))->format('Y-m-d'):null;}unset($entry);
+    return ['basis'=>'received_subscription_ex_vat','currency'=>'EUR','months'=>$months,'entries'=>$entries,'entries_truncated'=>$truncated];
+}
+
+function partner_summary(array $accounts,array $commissions): array {
+    $now=gmdate('Y-m-d H:i:s');$soon=gmdate('Y-m-d H:i:s',time()+7*86400);
+    $month=(new DateTimeImmutable('now',new DateTimeZone('Europe/Brussels')))->format('Y-m');
+    $summary=['running_trials'=>0,'active_customers'=>0,'total_customers'=>count($accounts),'expiring_trials'=>0,'month'=>$month,'month_commission_cents'=>0,'unpaid_commission_cents'=>0,'paid_commission_cents'=>0];
+    foreach($accounts as $account){
+        if(!(int)$account['active'])continue;
+        if($account['trial_end']&&!$account['converted_at']){
+            if($account['trial_end']>$now){$summary['running_trials']++;if($account['trial_end']<=$soon)$summary['expiring_trials']++;}
+        }else $summary['active_customers']++;
+    }
+    foreach($commissions['months'] as $row){
+        if($row['month']===$month)$summary['month_commission_cents']=$row['amount_cents'];
+        $summary['unpaid_commission_cents']+=$row['unpaid_cents'];$summary['paid_commission_cents']+=$row['paid_cents'];
+    }
+    return $summary;
+}
+
 function partner_dashboard(array $u): array {
-    $p=row('SELECT * FROM ab_partners WHERE id=?',[$u['partner_id']]);
-    return ['partner'=>partner_view($p),'name'=>$u['name'],'csrf'=>$u['csrf'],'accounts'=>partner_accounts($p['id']),
+    $p=row('SELECT * FROM ab_partners WHERE id=?',[$u['partner_id']]);$accounts=partner_accounts($p['id']);$commissions=partner_commission_report($p['id']);
+    return ['partner'=>partner_view($p),'name'=>$u['name'],'csrf'=>$u['csrf'],'accounts'=>$accounts,'summary'=>partner_summary($accounts,$commissions),'commissions'=>$commissions,
         'enquiries'=>query("SELECT c.id,c.name,c.company,c.email,c.status,c.created_at FROM ab_partner_enquiries e JOIN ab_contacts c ON c.id=e.contact_id WHERE e.partner_id=? ORDER BY c.created_at DESC LIMIT 500",[$p['id']])->fetchAll(),
-        'commission'=>query('SELECT status,SUM(amount_cents) AS amount_cents FROM ab_partner_commissions WHERE partner_id=? GROUP BY status',[$p['id']])->fetchAll()];
+        'commission'=>query("SELECT status,SUM(amount_cents) AS amount_cents FROM ab_partner_commissions WHERE partner_id=? AND currency='EUR' GROUP BY status",[$p['id']])->fetchAll()];
 }
 function partner_locked(array $u): array {
     $p=row('SELECT * FROM ab_partners WHERE id=? AND active=1 FOR UPDATE',[$u['partner_id']]);if(!$p)fail(403,'Deze partneromgeving is niet actief.');
@@ -104,13 +196,54 @@ function partner_customer_activation(array $u,array $data): array {
 function partner_admin_list(array $u): array {superadmin($u);$list=query('SELECT p.*,(SELECT COUNT(*) FROM ab_partner_accounts a WHERE a.partner_id=p.id) AS customers,(SELECT COUNT(*) FROM ab_partner_accounts a WHERE a.partner_id=p.id AND a.activation_requested_at IS NOT NULL) AS pending FROM ab_partners p ORDER BY p.name')->fetchAll();return ['partners'=>array_map('partner_view',$list)];}
 function partner_admin_detail(array $u,array $data): array {
     superadmin($u);$id=identifier($data['id']??'');$p=row('SELECT * FROM ab_partners WHERE id=?',[$id]);if(!$p)fail(404,'Partner niet gevonden.');
-    return ['partner'=>partner_view($p),'accounts'=>partner_accounts($id),'members'=>query('SELECT u.id,u.name,u.email,u.active FROM ab_partner_members m JOIN ab_users u ON u.id=m.user_id WHERE m.partner_id=? ORDER BY u.name',[$id])->fetchAll()];
+    $accounts=partner_accounts($id);$commissions=partner_commission_report($id);
+    return ['partner'=>partner_view($p),'accounts'=>$accounts,'summary'=>partner_summary($accounts,$commissions),'commissions'=>$commissions,'members'=>query('SELECT u.id,u.name,u.email,u.active FROM ab_partner_members m JOIN ab_users u ON u.id=m.user_id WHERE m.partner_id=? ORDER BY u.name',[$id])->fetchAll()];
 }
 function partner_admin_save(array $u,array $data): array {
-    superadmin($u);return transaction(function()use($u,$data){$name=text($data,'name',120,true);$mail=email($data);$active=flag($data,'active',true);$create=flag($data,'can_create',true);$activate=flag($data,'can_activate');
-        if(!empty($data['id'])){$id=identifier($data['id']);$p=row('SELECT * FROM ab_partners WHERE id=? FOR UPDATE',[$id]);if(!$p)fail(404,'Partner niet gevonden.');if(integer($data,'revision',1,2147483647)!==(int)$p['revision'])fail(409,'Deze partner is elders gewijzigd. Vernieuw de gegevens.');query('UPDATE ab_partners SET name=?,email=?,active=?,can_create=?,can_activate=?,revision=revision+1 WHERE id=?',[$name,$mail,(int)$active,(int)$create,(int)$activate,$id]);}
-        else{$id=uid();query('INSERT INTO ab_partners(id,name,email,referral_code,active,can_create,can_activate) VALUES (?,?,?,?,?,?,?)',[$id,$name,$mail,bin2hex(random_bytes(12)),(int)$active,(int)$create,(int)$activate]);}
-        if(!$active)query('DELETE s FROM ab_sessions s JOIN ab_partner_members m ON m.user_id=s.user_id WHERE m.partner_id=?',[$id]);audit($u['id'],'partner.saved',$id);return ['id'=>$id];});
+    superadmin($u);
+    $isNew=empty($data['id']);$invite=$isNew&&flag($data,'send_invite');
+    $key=$isNew&&($invite||isset($data['request_key']))?crm_key($data):null;
+    $lock='ab-partner-create-'.substr(hash('sha256',configuration()['db']['name']),0,30);
+    if($isNew&&(int)query('SELECT GET_LOCK(?,10)',[$lock])->fetchColumn()!==1)fail(409,'Er wordt al een partner aangemaakt. Probeer opnieuw.');
+    try{
+        $result=transaction(function()use($u,$data,$isNew,$invite,$key){
+            $name=text($data,'name',120,true);$mail=email($data);$active=flag($data,'active',true);$create=flag($data,'can_create',true);$activate=flag($data,'can_activate');
+            if(!$isNew){
+                $id=identifier($data['id']);$p=row('SELECT * FROM ab_partners WHERE id=? FOR UPDATE',[$id]);if(!$p)fail(404,'Partner niet gevonden.');
+                if(integer($data,'revision',1,2147483647)!==(int)$p['revision'])fail(409,'Deze partner is elders gewijzigd. Vernieuw de gegevens.');
+                $contact=array_key_exists('contact_name',$data)?text($data,'contact_name',120):$p['contact_name'];$phone=array_key_exists('phone',$data)?text($data,'phone',40):$p['phone'];
+                $rate=array_key_exists('commission_percent',$data)?partner_percent_bps($data['commission_percent']):(int)$p['commission_bps'];
+                query('UPDATE ab_partners SET name=?,email=?,contact_name=?,phone=?,commission_bps=?,active=?,can_create=?,can_activate=?,revision=revision+1 WHERE id=?',[$name,$mail,$contact,$phone,$rate,(int)$active,(int)$create,(int)$activate,$id]);
+                if(!$active)query('DELETE s FROM ab_sessions s JOIN ab_partner_members m ON m.user_id=s.user_id WHERE m.partner_id=?',[$id]);
+                if($rate!==(int)$p['commission_bps'])audit($u['id'],'partner.commission_rate_changed',$id);
+                audit($u['id'],'partner.saved',$id);return ['id'=>$id,'replayed'=>false];
+            }
+            $contact=text($data,'contact_name',120,$invite);$phone=text($data,'phone',40);$rate=partner_percent_bps($data['commission_percent']??'0');
+            if($invite&&!$active)fail(422,'Activeer de partner om meteen een welkomstmail te sturen.');
+            $hash=hash('sha256',encoded([$name,$mail,$contact,$phone,$rate,$active,$create,$activate,$invite]));
+            if($key){
+                $old=row('SELECT id,created_by,create_request_hash,invite_mail_status FROM ab_partners WHERE create_request_key=? FOR UPDATE',[$key]);
+                if($old){
+                    if($old['created_by']!==$u['id']||!hash_equals($old['create_request_hash'],$hash))fail(409,'Dit verzoek is al met andere gegevens verwerkt.');
+                    return ['id'=>$old['id'],'replayed'=>true,'mail'=>$old['invite_mail_status']??'not_requested'];
+                }
+            }
+            if($invite&&row('SELECT id FROM ab_users WHERE email=?',[$mail]))fail(409,'Dit e-mailadres heeft al een account. Gebruik een ander aanmeldadres.');
+            $id=uid();query('INSERT INTO ab_partners(id,name,email,contact_name,phone,commission_bps,referral_code,active,can_create,can_activate,create_request_key,create_request_hash,created_by,invite_mail_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[$id,$name,$mail,$contact,$phone,$rate,bin2hex(random_bytes(12)),(int)$active,(int)$create,(int)$activate,$key,$key?$hash:null,$u['id'],$invite?'pending':null]);
+            $result=['id'=>$id,'replayed'=>false];
+            if($invite){
+                $member=uid();query("INSERT INTO ab_users(id,email,name,role) VALUES (?,?,?,'partner')",[$member,$mail,$contact]);query('INSERT INTO ab_partner_members(user_id,partner_id) VALUES (?,?)',[$member,$id]);
+                $result+=['invite_url'=>partner_invite_link($member),'email'=>$mail,'contact_name'=>$contact,'company'=>$name];audit($u['id'],'partner.invited',$member);
+            }
+            audit($u['id'],'partner.saved',$id);return $result;
+        });
+    }finally{if($isNew)query('SELECT RELEASE_LOCK(?)',[$lock]);}
+    if(isset($result['invite_url'])){
+        $result['mail']=partner_welcome_mail($result['email'],$result['contact_name'],$result['company'],$result['invite_url']);
+        query('UPDATE ab_partners SET invite_mail_status=? WHERE id=?',[$result['mail'],$result['id']]);
+        audit($u['id'],'partner.welcome_'.$result['mail'],$result['id']);unset($result['email'],$result['contact_name'],$result['company']);
+    }
+    return $result;
 }
 function partner_admin_member(array $u,array $data): array {
     superadmin($u);$result=transaction(function()use($u,$data){$pid=identifier($data['partner']??'');$p=row('SELECT * FROM ab_partners WHERE id=? FOR UPDATE',[$pid]);if(!$p)fail(404,'Partner niet gevonden.');
@@ -119,14 +252,93 @@ function partner_admin_member(array $u,array $data): array {
             if(!$member['active']||!$p['active'])fail(422,'Activeer eerst de partner en gebruiker.');
         }else{$mail=email($data);$name=text($data,'name',120,true);if(row('SELECT id FROM ab_users WHERE email=?',[$mail]))fail(409,'Dit e-mailadres heeft al een account. Gebruik een ander aanmeldadres.');$id=uid();query("INSERT INTO ab_users(id,email,name,role) VALUES (?,?,?,'partner')",[$id,$mail,$name]);query('INSERT INTO ab_partner_members VALUES (?,?)',[$id,$pid]);$member=['email'=>$mail,'name'=>$name];}
         $url=partner_invite_link($id);audit($u['id'],'partner.invited',$id);return ['invite_url'=>$url,'email'=>$member['email'],'name'=>$member['name'],'company'=>$p['name']];});
-    if(isset($result['invite_url'])){$content=lifecycle_mail('Welkom in de partneromgeving',"Dag ".$result['name']."\n\nJe krijgt toegang tot de partneromgeving voor ".$result['company'].". Kies je eigen wachtwoord. Deze link is 24 uur geldig.",'Wachtwoord kiezen',$result['invite_url']);$result['mail']=deliver_mail($result['email'],$result['name'],$content);}
+    if(isset($result['invite_url']))$result['mail']=partner_welcome_mail($result['email'],$result['name'],$result['company'],$result['invite_url']);
     return $result;
 }
+
+function partner_financial_date(array $data,string $field): string {
+    $value=text($data,$field,10,true);$today=(new DateTimeImmutable('now',new DateTimeZone('Europe/Brussels')))->format('Y-m-d');
+    if(!valid_date($value)||$value<'2000-01-01'||$value>$today)fail(422,'Kies voor '.$field.' een geldige datum die niet in de toekomst ligt.');
+    return $value;
+}
+
+function partner_commission_result(array $row,bool $replayed): array {
+    return ['id'=>$row['id'],'amount_cents'=>(int)$row['amount_cents'],'rate_bps'=>$row['rate_bps']===null?null:(int)$row['rate_bps'],'status'=>$row['status'],'replayed'=>$replayed];
+}
+
+function partner_admin_commission_record(array $u,array $data): array {
+    superadmin($u);if(!flag($data,'confirmed'))fail(422,'Bevestig dat dit abonnementsgeld werkelijk ontvangen is, exclusief btw.');
+    $pid=identifier($data['partner']??'');$tenant=identifier($data['tenant']??'');$reference=text($data,'invoice_reference',120,true);
+    $month=text($data,'month',7,true);$received=partner_financial_date($data,'received_on');
+    if(!preg_match('/^[0-9]{4}-[0-9]{2}$/D',$month)||!valid_date($month.'-01')||$month!==substr($received,0,7))fail(422,'De commissiemaand moet overeenkomen met de maand waarin de betaling ontvangen is.');
+    $base=integer($data,'base_cents',1,100000000);$key=crm_key($data);
+    $hash=hash('sha256',encoded([$pid,$tenant,$reference,$month,$received,$base]));
+    // Manual receipts are infrequent. One database-scoped lock also prevents a duplicate invoice being entered under another partner.
+    $lock='ab-partner-receipt-'.substr(hash('sha256',configuration()['db']['name']),0,30);
+    if((int)query('SELECT GET_LOCK(?,10)',[$lock])->fetchColumn()!==1)fail(409,'Er wordt al een betaling verwerkt. Probeer opnieuw.');
+    try{
+        return transaction(function()use($u,$data,$pid,$tenant,$reference,$month,$received,$base,$key,$hash){
+            $p=row('SELECT * FROM ab_partners WHERE id=? FOR UPDATE',[$pid]);if(!$p)fail(404,'Partner niet gevonden.');
+            $old=row('SELECT * FROM ab_partner_commissions WHERE partner_id=? AND request_key=? FOR UPDATE',[$pid,$key]);
+            if($old){if(!$old['request_hash']||!hash_equals($old['request_hash'],$hash))fail(409,'Dit verzoek is al met andere betalingsgegevens verwerkt.');return partner_commission_result($old,true);}
+            $old=row('SELECT * FROM ab_partner_commissions WHERE invoice_reference=? LIMIT 1',[$reference]);
+            if($old){
+                if($old['partner_id']!==$pid||!$old['request_hash']||!hash_equals($old['request_hash'],$hash))fail(409,'Deze betalingsreferentie is al geregistreerd. Controleer de bestaande boeking.');
+                return partner_commission_result($old,true);
+            }
+            $expectedRate=integer($data,'expected_rate_bps',0,10000);
+            if($expectedRate!==(int)$p['commission_bps'])fail(409,'Het commissiepercentage is intussen gewijzigd. Vernieuw de partnergegevens en controleer het nieuwe bedrag.');
+            $account=row('SELECT tenant_id FROM ab_partner_accounts WHERE partner_id=? AND tenant_id=?',[$pid,$tenant]);if(!$account)fail(404,'Klant niet gevonden bij deze partner.');
+            $t=row('SELECT id,plan_type FROM ab_tenants WHERE id=? FOR UPDATE',[$tenant]);
+            if(!in_array($t['plan_type'],['monthly','annual'],true))fail(422,'Commissies zijn alleen beschikbaar voor abonnementsgeld, niet voor een eenmalige lifetime-aankoop.');
+            $trial=row('SELECT converted_at FROM ab_trials WHERE tenant_id=? FOR UPDATE',[$tenant]);
+            if($trial&&!$trial['converted_at'])fail(422,'Dit is nog een proefaccount. Rond eerst de overstap naar een betaald abonnement af.');
+            $rate=(int)$p['commission_bps'];
+            // All arithmetic uses integer eurocents and basis points; round half up once per receipt.
+            $amount=intdiv($base*$rate+5000,10000);$id=uid();
+            $terms=encoded(['basis'=>'received_subscription_ex_vat','currency'=>'EUR','rate_bps'=>$rate,'base_cents'=>$base,'received_on'=>$received,'month'=>$month,'annual_receipt'=>'full_amount_in_received_month','rate_snapshot'=>'at_registration','confirmed_received'=>true,'recorded_by'=>$u['id']]);
+            query("INSERT INTO ab_partner_commissions(id,partner_id,tenant_id,invoice_reference,amount_cents,currency,terms_json,status,commission_month,received_on,base_cents,rate_bps,request_key,request_hash,recorded_by) VALUES (?,?,?,?,?,'EUR',?,'approved',?,?,?,?,?,?,?)",[$id,$pid,$tenant,$reference,$amount,$terms,$month,$received,$base,$rate,$key,$hash,$u['id']]);
+            audit($u['id'],'partner.receipt_recorded',$id);
+            return partner_commission_result(['id'=>$id,'amount_cents'=>$amount,'rate_bps'=>$rate,'status'=>'approved'],false);
+        });
+    }finally{query('SELECT RELEASE_LOCK(?)',[$lock]);}
+}
+
+function partner_admin_commission_status(array $u,array $data): array {
+    superadmin($u);if(!flag($data,'confirmed'))fail(422,'Bevestig deze wijziging.');
+    $pid=identifier($data['partner']??'');$id=identifier($data['id']??'');$status=text($data,'status',16,true);
+    if(!in_array($status,['paid','void'],true))fail(422,'Kies uitbetaald of geannuleerd.');
+    $paidOn=$status==='paid'&&isset($data['paid_on'])?partner_financial_date($data,'paid_on'):null;
+    return transaction(function()use($u,$pid,$id,$status,$paidOn){
+        if(!row('SELECT id FROM ab_partners WHERE id=? FOR UPDATE',[$pid]))fail(404,'Partner niet gevonden.');
+        $entry=row('SELECT * FROM ab_partner_commissions WHERE partner_id=? AND id=? FOR UPDATE',[$pid,$id]);if(!$entry)fail(404,'Commissie niet gevonden.');
+        if($entry['status']===$status){
+            if($status==='paid'&&$paidOn!==null){$stored=(new DateTimeImmutable($entry['paid_at'],new DateTimeZone('UTC')))->setTimezone(new DateTimeZone('Europe/Brussels'))->format('Y-m-d');if($stored!==$paidOn)fail(409,'Deze commissie is al op een andere datum als uitbetaald geregistreerd.');}
+            return ['id'=>$id,'status'=>$status,'replayed'=>true];
+        }
+        if($entry['status']==='paid')fail(409,'Een uitbetaalde commissie kan niet worden geannuleerd. Neem een eventuele terugbetaling apart op in je administratie.');
+        if($entry['status']==='void')fail(409,'Deze commissie is geannuleerd en kan niet meer worden uitbetaald.');
+        if($status==='paid'){
+            if($entry['status']!=='approved')fail(422,'Alleen goedgekeurde commissies kunnen als uitbetaald worden geregistreerd.');
+            $date=$paidOn??(new DateTimeImmutable('now',new DateTimeZone('Europe/Brussels')))->format('Y-m-d');
+            if($entry['received_on']&&$date<$entry['received_on'])fail(422,'De uitbetalingsdatum mag niet vóór de ontvangen betaling liggen.');
+            $stamp=(new DateTimeImmutable($date.' 00:00:00',new DateTimeZone('Europe/Brussels')))->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+            query("UPDATE ab_partner_commissions SET status='paid',paid_at=? WHERE id=?",[$stamp,$id]);
+            audit($u['id'],'partner.commission_paid',$id);
+        }else{
+            if(!in_array($entry['status'],['approved','review'],true))fail(409,'Deze commissie kan niet worden geannuleerd.');
+            query("UPDATE ab_partner_commissions SET status='void',voided_at=UTC_TIMESTAMP() WHERE id=?",[$id]);audit($u['id'],'partner.commission_voided',$id);
+        }
+        return ['id'=>$id,'status'=>$status,'replayed'=>false];
+    });
+}
+
 function partner_routes(string $route,string $method): void {
     if($route==='partner/login'&&$method==='POST')respond(partner_login(body()));
     if(in_array($route,['partner/invite-check','partner/invite-accept'],true)&&$method==='POST')respond(partner_invite_accept(body(),$route==='partner/invite-accept'));
     $u=partner_identity();if($method==='POST')csrf($u);
     if($route==='partner/me'&&$method==='GET')respond(partner_dashboard($u));
+    if($route==='partner/trial-link'&&$method==='POST')respond(partner_trial_link($u,body()));
     if($route==='partner/customer-create'&&$method==='POST')respond(partner_create_customer($u,body()),201);
     if($route==='partner/activation'&&$method==='POST')respond(partner_customer_activation($u,body()));
     if($route==='partner/logout'&&$method==='POST'){query('DELETE FROM ab_sessions WHERE token_hash=?',[$u['token_hash']]);partner_cookie('',time()-3600);respond(['ok'=>true]);}

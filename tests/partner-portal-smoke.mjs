@@ -1,0 +1,39 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {setup,result,until,submit} from './partner-ui-harness.mjs';
+const now=new Date(),month=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Brussels',year:'numeric',month:'2-digit'}).format(now),oldMonth='2025-01';
+const id='1'.repeat(32),tid='2'.repeat(32);
+const partner={id,name:'Partner <img src=x>',contact_name:'Contact',email:'partner@example.test',commission_percent:'20.25',commission_bps:2025,can_create:true,can_activate:false,referral_url:'https://app.afspraakboeken.be/registreren/?mode=trial&partner=abc'};
+const entries=[{id:'3'.repeat(32),tenant_id:tid,customer_name:'=HYPERLINK("https://example.test")',invoice_reference:' \t+SUM(1,1)',month,received_on:month+'-01',base_cents:10001,rate_bps:2025,amount_cents:2025,status:'approved',paid_at:null},{id:'4'.repeat(32),tenant_id:tid,customer_name:'Old month customer',invoice_reference:'OLD',month:oldMonth,received_on:oldMonth+'-01',base_cents:10000,rate_bps:1000,amount_cents:1000,status:'paid',paid_at:oldMonth+'-01 23:00:00',paid_on:oldMonth+'-02'}];
+const future=new Date(Date.now()+2*86400000).toISOString().slice(0,19).replace('T',' ');
+const account={tenant_id:tid,name:'Trial <script>bad</script>',email:'trial@example.test',active:1,source:'link',created_at:'2026-01-01 12:00:00',trial_end:future,converted_at:null};
+const data={partner,name:'Contact <svg onload=bad>',csrf:'partner-csrf',accounts:[account,{...account,tenant_id:'5'.repeat(32),name:'Active company',email:'active@example.test',trial_end:null}],enquiries:[],commission:[],summary:{total_customers:2,running_trials:1,active_customers:1,month,month_commission_cents:2025,unpaid_commission_cents:2025,paid_commission_cents:1000},commissions:{months:[{month,base_cents:10001,amount_cents:2025,unpaid_cents:2025,paid_cents:0},{month:oldMonth,base_cents:10000,amount_cents:1000,unpaid_cents:0,paid_cents:1000}],entries,basis:'received_subscription_ex_vat'}};
+test('Partner overview escapes external data and keeps navigation within the partner account',async()=>{
+ const ui=await setup(route=>route==='partner/me'?result(data):result({error:'Unexpected request'},500));
+ try{await until(()=>ui.document.querySelector('.partner-nav'));assert.equal(ui.document.querySelector('script,svg[onload],img[src=x]'),null);assert.ok(ui.document.body.textContent.includes('Trial <script>bad</script>'));assert.ok(ui.document.body.textContent.includes('20,25%'));assert.ok(ui.document.querySelector('[data-partner=commissions]'));assert.equal(ui.document.querySelector('[data-page=tenants]'),null);
+ ui.document.querySelector('[data-partner=customers]').click();const search=ui.document.getElementById('partner-customer-search');search.value='active@example.test';search.dispatchEvent(new ui.window.Event('input',{bubbles:true}));const table=ui.document.getElementById('partner-customer-results');assert.ok(table.textContent.includes('Active company'));assert.ok(!table.textContent.includes('Trial <script>bad</script>'));assert.equal(ui.calls.length,1);
+ }finally{await ui.close();}
+});
+test('Commission month selection and CSV export keep rate snapshots and neutralize spreadsheet formulas',async()=>{
+ const ui=await setup(route=>route==='partner/me'?result(data):result({error:'Unexpected request'},500));
+ try{await until(()=>ui.document.querySelector('.partner-nav'));ui.document.querySelector('[data-partner=commissions]').click();let table=ui.document.querySelector('[aria-label="Commissies per klant"]');assert.ok(table.textContent.includes('HYPERLINK'));assert.ok(!table.textContent.includes('Old month customer'));assert.ok(table.textContent.includes('20,25%'));
+ ui.document.querySelector('[data-partner=commission-export]').click();await until(()=>ui.downloads.length===1);const csv=await ui.downloads[0].text();assert.ok(csv.includes('"\'=HYPERLINK(""https://example.test"")"'));assert.ok(csv.includes('"\' \t+SUM(1,1)"'));assert.ok(csv.includes('"20,25"'));assert.ok(!csv.includes('Old month customer'));
+ const select=ui.document.getElementById('partner-commission-month');select.value=oldMonth;select.dispatchEvent(new ui.window.Event('change',{bubbles:true}));table=ui.document.querySelector('[aria-label="Commissies per klant"]');assert.ok(table.textContent.includes('Old month customer'));assert.ok(!table.textContent.includes('HYPERLINK'));assert.ok(table.textContent.includes('10%'));ui.document.querySelector('[data-partner=commission-export]').click();await until(()=>ui.downloads.length===2);const oldCsv=await ui.downloads[1].text();assert.ok(oldCsv.includes('"'+oldMonth+'-02"'));assert.ok(!oldCsv.includes('23:00:00'));assert.equal(ui.calls.some(c=>c.route==='partners/commission-record'||c.route==='partners/commission-status'),false);
+ }finally{await ui.close();}
+});
+test('A failed trial-link request preserves input and successful generation copies the attributed URL',async()=>{
+ let attempt=0;const generated=partner.referral_url+'&utm_campaign=nieuwsbrief';
+ const ui=await setup((route,payload)=>route==='partner/me'?result(data):route==='partner/trial-link'?(++attempt===1?result({error:'Probeer opnieuw'},503):result({url:generated,days:14})):result({error:'Unexpected request'},500));
+ try{await until(()=>ui.document.querySelector('.partner-nav'));ui.document.querySelector('[data-partner=links]').click();const f=ui.document.querySelector('[data-form=trial-link]');f.elements.campaign.value='nieuwsbrief';submit(ui,f);await until(()=>f.querySelector('.form-error').textContent==='Probeer opnieuw');assert.equal(f.elements.campaign.value,'nieuwsbrief');assert.equal(f.querySelector('button[type=submit]').disabled,false);
+ submit(ui,f);await until(()=>ui.document.getElementById('partner-trial-link'));assert.equal(ui.document.getElementById('partner-trial-link').value,generated);ui.document.querySelector('[data-partner=copy][data-input=partner-trial-link]').click();await until(()=>ui.copied.length===1);assert.equal(ui.copied[0],generated);assert.equal(ui.calls.filter(c=>c.route==='partner/trial-link').length,2);assert.deepEqual(ui.calls.find(c=>c.route==='partner/trial-link').data,{campaign:'nieuwsbrief'});
+ }finally{await ui.close();}
+});
+test('An empty account has no fabricated earnings and disables commission export',async()=>{
+ const ui=await setup(()=>result({...data,accounts:[],summary:{total_customers:0,running_trials:0,active_customers:0,month,month_commission_cents:0,unpaid_commission_cents:0,paid_commission_cents:0},commissions:{months:[],entries:[]}}));
+ try{await until(()=>ui.document.querySelector('.partner-nav'));ui.document.querySelector('[data-partner=commissions]').click();assert.equal(ui.document.querySelector('[data-partner=commission-export]').disabled,true);assert.ok(ui.document.body.textContent.includes('Nog geen commissie geregistreerd'));assert.equal(ui.document.querySelectorAll('[aria-label="Commissies per klant"] tbody tr').length,1);}finally{await ui.close();}
+});
+test('A truncated ledger keeps complete totals visible but prevents an incomplete CSV export',async()=>{
+ const legacy={...entries[0],base_cents:null,rate_bps:null};
+ const ui=await setup(()=>result({...data,commissions:{...data.commissions,entries:[legacy],entries_truncated:true}}));
+ try{await until(()=>ui.document.querySelector('.partner-nav'));ui.document.querySelector('[data-partner=commissions]').click();const exportButton=ui.document.querySelector('[data-partner=commission-export]');assert.equal(exportButton.disabled,true);assert.ok(ui.document.body.textContent.includes('1.000')||ui.document.body.textContent.includes('1000'));const cells=ui.document.querySelectorAll('[aria-label="Commissies per klant"] tbody tr td');assert.equal(cells[2].textContent,'—');assert.equal(cells[3].textContent,'—');exportButton.click();assert.equal(ui.downloads.length,0);}finally{await ui.close();}
+});

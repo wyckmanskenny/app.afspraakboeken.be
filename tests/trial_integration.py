@@ -24,13 +24,16 @@ def run(Client,owner,anonymous,messages,envelopes,config,state):
     assert anonymous.call('health')['trial_available'] is True
     anonymous.call('trial/signup',signup,expected=201)
     assert envelopes[-1]==['trial@example.test'] and len(owner.call('tenants')['tenants'])==start_count
-    token=re.search(r'#trial=([a-f0-9]{64})',messages[-1].get_body(('plain',)).get_content())[1]
+    signup_mail=messages[-1].get_body(('plain',)).get_content()
+    assert '€15' not in signup_mail and '€180' not in signup_mail and 'Prijs op aanvraag' in signup_mail
+    token=re.search(r'#trial=([a-f0-9]{64})',signup_mail)[1]
     assert anonymous.call('trial/check',{'token':token})['trial'] is True
     created=anonymous.call('trial/accept',{'token':token,'password':'Only-for-integration-tests-123!'})
     anonymous.call('trial/accept',{'token':token,'password':'Only-for-integration-tests-123!'},expected=400)
     tenant_id=created['tenant_id'];tenant=owner.call('workspace',tenant=tenant_id)['tenant']
     trial=tenant['trial'];assert (dt.datetime.fromisoformat(trial['ends_at'])-dt.datetime.fromisoformat(trial['starts_at'])).days==14
     assert tenant['active'] is True and trial['converted_at'] is None
+    assert tenant['subscription']['monthlyAmount']==0, 'A new free trial must not inherit a fixed subscription price'
     before=len(messages);anonymous.call('trial/signup',signup,expected=201)
     assert len(messages)==before and len(owner.call('tenants')['tenants'])==start_count+1
     client=Client();client.login('trial@example.test');workspace=client.call('workspace')
@@ -49,7 +52,9 @@ def run(Client,owner,anonymous,messages,envelopes,config,state):
             state['reject']=False
         before=len(messages);result=cron();assert result['sent']==1,(days,result)
         assert len(messages)==before+1 and envelopes[-1]==['trial@example.test']
-        assert '?view=subscription' in messages[-1].get_body(('plain',)).get_content()
+        reminder=messages[-1].get_body(('plain',)).get_content()
+        assert '?view=subscription' in reminder
+        assert '€15' not in reminder and '€180' not in reminder and 'formule en prijs af' in reminder
         assert cron()['sent']==0 and len(messages)==before+1
     sql(f"UPDATE ab_trials SET ends_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 SECOND) WHERE tenant_id='{tenant_id}'")
     assert client.call('workspace')['tenant']['trial']['expired'] is True
@@ -68,13 +73,18 @@ def run(Client,owner,anonymous,messages,envelopes,config,state):
     sent=len(messages);client.call('trial/upgrade',request);assert len(messages)==sent
     assert owner.call('notifications')['new_requests']==before+1
     trial=owner.call('workspace',tenant=tenant_id)['tenant'];assert trial['subscription']['billing']['email']=='billing-trial@example.test'
+    assert 'annualCentsPerUser' not in trial['subscription']['billing'], 'An activation request must not commit the customer to a fixed annual price'
+    # Owner agrees a different formula and amount; converting a trial must preserve both.
+    owner.call('tenant/admin',{'tenant':tenant_id,'revision':trial['revision'],'active':True,'plan_type':'monthly','monthly_cents':2750,'lifetime_cents':0,'billing':{'email':'billing-trial@example.test'}})
     client.call('trial/convert',{'tenant':tenant_id,'confirmed':True},expected=403)
     owner.call('trial/convert',{'tenant':tenant_id,'confirmed':False},expected=422)
     owner.call('trial/convert',{'tenant':tenant_id,'confirmed':True})
     assert owner.call('notifications')['new_requests']==before
     assert client.call('workspace')['tenant']['trial']['converted_at'] is not None
+    converted=owner.call('workspace',tenant=tenant_id)['tenant']
+    assert converted['subscription']['type']=='monthly' and converted['subscription']['monthlyAmount']==27.5
     anonymous.call('public/catalog',tenant=tenant_id)
     sent=len(messages);assert cron()['sent']==0 and len(messages)==sent
     owner.call('trial/convert',{'tenant':tenant_id,'confirmed':True})
     assert sql(f"SELECT COUNT(*) FROM ab_audit WHERE action='trial.converted' AND target_id='{tenant_id}'")=='1'
-    print('PASS activation request, badge count, separate billing, role checks and manual conversion',flush=True)
+    print('PASS flexible-price activation request, badge count, separate billing, role checks and conversion preserves agreed price',flush=True)

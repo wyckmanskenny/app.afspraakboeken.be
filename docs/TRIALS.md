@@ -11,13 +11,13 @@
 | Verder werken | Inloggen | De bestaande accountlogin |
 | Na de proefperiode doorgaan | Abonnement activeren | Inloggen → activatieverzoek met facturatiegegevens → bevestiging door superadmin |
 
-Prijs: **€15 per gebruiker per maand**, jaarlijks gefactureerd: **€180 exclusief btw per gebruiker per jaar**. Deze versie ondersteunt één beheerder per bedrijf. Boekende eindklanten tellen niet als betalende gebruikers. Er is geen automatische betaling of automatische omzetting naar een betaald contract.
+Prijs en facturatieperiode worden per bedrijf afgesproken en door de superadmin opgeslagen bij **Administratie**. Nieuwe trials krijgen geen vast abonnementstarief. Activatie behoudt de ingevoerde prijs en formule. Deze versie ondersteunt één beheerder per bedrijf. Er is geen automatische betaling of automatische omzetting naar een betaald contract.
 
 ## Wat de superadmin ziet
 
 - **Aanvragen:** informatievragen en verzoeken om een abonnement te activeren. Het rode bolletje telt alle aanvragen met status `Nieuw`. Openen wist niets; de status wijzigen naar `Gecontacteerd` of `Gearchiveerd` verlaagt het aantal. Het aantal wordt bij openen en elke minuut in een zichtbare superadminomgeving opgehaald.
 - **Gratis trial gestart:** bevestigde proefaccounts met start, einddatum, resterende tijd, activatieverzoek, activatiedatum en status van de vier herinneringen. Onbevestigde e-mailadressen zijn nog geen proefaccounts.
-- **Jaarabonnement activeren:** expliciet bevestigen dat de jaarformule met de klant is afgesproken. Daarna vervalt de proefbeperking en wordt het activatieverzoek als gecontacteerd gemarkeerd. Facturatie en jaarlijkse opvolging blijven handmatig.
+- **Abonnement activeren:** expliciet bevestigen dat de formule en prijs met de klant zijn afgesproken en in Administratie zijn vastgelegd. Daarna vervalt de proefbeperking en wordt het activatieverzoek als gecontacteerd gemarkeerd. Facturatie en betalingen blijven handmatig.
 
 ## Eenmalige hostinginstellingen
 

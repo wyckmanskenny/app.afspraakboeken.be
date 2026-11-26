@@ -32,7 +32,7 @@ Google/Outlook calendar synchronization, automatic booking email, booking remind
 
 The public `/registreren/` information route stays on the same page in two steps. `/registreren/?mode=trial` sends a single-use 24-hour verification link; the 14-day trial starts only after mailbox confirmation and password setup. A public trial cannot start without SMTP. Trial expiry is enforced by the API even when cron is absent. Existing accounts are not converted to trials.
 
-The homepage replaces its contact form with an information CTA and links to `/prijzen/`: €15 per user/month, billed annually at €180 excluding VAT. One administrator per company is currently supported. Trial upgrades are explicit requests, with billing details stored separately from the login address. Only a superadmin converts the trial after agreeing the annual formula; invoicing and collection stay manual.
+Pricing is agreed per company; the public trial flow promises no fixed subscription rate or automatic paid conversion. One administrator per company is currently supported. Trial upgrades are explicit requests, with billing details stored separately from the login address. A superadmin confirms the agreed formula; conversion preserves the configured price and billing period. Invoicing and collection stay manual. See [docs/PARTNERS.md](docs/PARTNERS.md) for partner onboarding, attribution and commissions on registered received subscription revenue excluding VAT.
 
 Information and activation requests are stored in the superadmin inbox and notified to `kenny@kdesign.be`. The red badge counts status `new`; opening the inbox does not clear it. Visible agency tabs refresh the count every minute without extending the session idle timeout.
 

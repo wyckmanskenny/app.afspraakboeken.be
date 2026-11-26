@@ -241,10 +241,10 @@ test('Superadmin can create a partner with activation disabled by default',async
   if(route==='me')return result({csrf:'admin',user:{role:'superadmin',name:'Agency',email:'owner@example.test'}});
   if(route==='tenants')return result({tenants:[],notifications:{new_requests:0}});
   if(route==='partners/list')return result({partners:[]});
-  if(route==='partners/save'){partner={...data,id:'3'.repeat(32),revision:1,referral_url:'https://app.afspraakboeken.be/registreren/?partner=code'};return result({id:partner.id});}
+  if(route==='partners/save'){partner={...data,id:'3'.repeat(32),revision:1,referral_url:'https://app.afspraakboeken.be/registreren/?partner=code'};return result({id:partner.id,mail:'sent'});}
   if(route==='partners/detail')return result({partner,members:[],accounts:[]});
   throw Error(route);
- });try{await until(()=>ui.document.querySelector('[data-page="partners"]'));ui.document.querySelector('[data-page="partners"]').click();await until(()=>ui.document.querySelector('[data-pa="new"]'));ui.document.querySelector('[data-pa="new"]').click();const f=ui.document.querySelector('[data-pa-form="partner"]');assert.equal(f.elements.can_activate.checked,false);f.elements.name.value='Partner';f.elements.email.value='partner@example.test';f.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.document.querySelector('[data-pa-form="member"]'));assert.equal(ui.calls.find(c=>c.route==='partners/save').data.can_activate,false);assert.equal(ui.calls.some(c=>c.route==='partners/member'),false);}finally{await ui.close();}
+ });try{await until(()=>ui.document.querySelector('[data-page="partners"]'));ui.document.querySelector('[data-page="partners"]').click();await until(()=>ui.document.querySelector('[data-pa="new"]'));ui.document.querySelector('[data-pa="new"]').click();const f=ui.document.querySelector('[data-pa-form="partner"]');assert.equal(f.elements.can_activate.checked,false);f.elements.name.value='Partner';f.elements.contact_name.value='Partner Contact';f.elements.email.value='partner@example.test';f.elements.commission_percent.value='20';f.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>ui.document.querySelector('[data-pa-form="member"]'));assert.equal(ui.calls.find(c=>c.route==='partners/save').data.can_activate,false);assert.equal(ui.calls.some(c=>c.route==='partners/member'),false);}finally{await ui.close();}
 });
 
 test('Calendar status and explicit calendar selection stay inside the company workspace',async()=>{

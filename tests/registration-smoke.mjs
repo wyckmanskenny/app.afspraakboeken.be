@@ -65,6 +65,8 @@ test('The information introduction opens step two without leaving the page',asyn
 test('The trial route submits to email verification and does not claim an account exists yet',async()=>{
  const ui=await setup(route=>route==='health'?response({ready:true,trial_available:true}):response({message:'Controleer je e-mail'}),'?mode=trial');
  const form=ui.document.getElementById('registration-form');assert.equal(form.hidden,false);
+ assert.match(ui.document.getElementById('registration-reassurance').textContent,/Prijs.*op aanvraag/);
+ assert.doesNotMatch(ui.document.getElementById('registration-reassurance').textContent,/€15|€180/);
  for(const [key,value] of Object.entries({name:'Test Lead',company:'Test Company',email:'lead@example.test',sector:form.querySelector('[name=sector]').options[1].value}))form.querySelector(`[name=${key}]`).value=value;
  form.dispatchEvent(new ui.window.Event('submit',{bubbles:true,cancelable:true}));await tick();
  assert.equal(ui.calls.at(-1).route,'trial/signup');assert.equal(ui.document.getElementById('registration-thanks').textContent,'Controleer je e-mail');await ui.window.happyDOM.close();

@@ -52,7 +52,7 @@ function trial_signup(array $data): array {
         query('INSERT INTO ab_trial_signups(email,name,company,sector,token_hash,expires_at) VALUES (?,?,?,?,?,DATE_ADD(UTC_TIMESTAMP(),INTERVAL 24 HOUR)) ON DUPLICATE KEY UPDATE name=VALUES(name),company=VALUES(company),sector=VALUES(sector),token_hash=VALUES(token_hash),expires_at=VALUES(expires_at)',[$email,$name,$company,$sector,hash('sha256',$token)]);
         partner_signup_referral($email,hash('sha256',$token),$data['partner']??null);
         $url=rtrim(configuration()['app_url'],'/').'/activate.html#trial='.$token;
-        $content=lifecycle_mail('Nog één stap naar je gratis proefperiode',"Dag $name,\n\nBevestig je e-mailadres en kies een wachtwoord voor $company. Daarna beginnen je 14 gratis dagen. Je hebt geen creditcard nodig.\n\nNa de proefperiode kost het abonnement €15 per gebruiker per maand, jaarlijks gefactureerd (€180 exclusief btw per gebruiker per jaar). Je wordt nooit automatisch betalend klant.\n\nDeze persoonlijke link werkt één keer en vervalt na 24 uur.",'Bevestigen en wachtwoord kiezen',$url);
+        $content=lifecycle_mail('Nog één stap naar je gratis proefperiode',"Dag $name,\n\nBevestig je e-mailadres en kies een wachtwoord voor $company. Daarna beginnen je 14 gratis dagen. Je hebt geen creditcard nodig.\n\nNa je proefperiode spreken we samen de formule en prijs af. Prijs op aanvraag. Je wordt nooit automatisch betalend klant.\n\nDeze persoonlijke link werkt één keer en vervalt na 24 uur.",'Bevestigen en wachtwoord kiezen',$url);
         if(deliver_mail($email,$name,$content)!=='sent')fail(503,'De bevestigingsmail kon niet worden verstuurd. Probeer later opnieuw of vraag vrijblijvend informatie op.');
     }finally{query('SELECT RELEASE_LOCK(?)',[$lock]);}
     return ['message'=>'Controleer je e-mail om je adres te bevestigen en je wachtwoord te kiezen. Heb je al een account? Log dan in met je bestaande gegevens.'];
@@ -70,7 +70,7 @@ function trial_accept(array $data,bool $accept): array {
         if(!$accept)return ['name'=>$signup['name'],'company'=>$signup['company'],'email'=>$signup['email'],'trial'=>true];
         if(row('SELECT id FROM ab_users WHERE email=?',[$signup['email']]))fail(409,'Dit e-mailadres heeft al een account. Meld je aan.');
         $password=hash_password(password($data));$id=uid();$user=uid();
-        query('INSERT INTO ab_tenants(id,name,sector,contact_email,active,plan_type,monthly_cents,lifetime_cents,billing_json,settings_json) VALUES (?,?,?,?,1,\'annual\',1500,0,?,?)',[$id,$signup['company'],$signup['sector'],$signup['email'],encoded(['email'=>$signup['email']]),encoded(default_settings())]);
+        query('INSERT INTO ab_tenants(id,name,sector,contact_email,active,plan_type,monthly_cents,lifetime_cents,billing_json,settings_json) VALUES (?,?,?,?,1,\'annual\',0,0,?,?)',[$id,$signup['company'],$signup['sector'],$signup['email'],encoded(['email'=>$signup['email']]),encoded(default_settings())]);
         query('INSERT INTO ab_users(id,tenant_id,email,name,role,password_hash) VALUES (?,?,?,?,\'admin\',?)',[$user,$id,$signup['email'],$signup['name'],$password]);
         query('INSERT INTO ab_trials(tenant_id,starts_at,ends_at) VALUES (?,UTC_TIMESTAMP(),DATE_ADD(UTC_TIMESTAMP(),INTERVAL 14 DAY))',[$id]);
         partner_trial_attribution($signup,$id);
@@ -89,15 +89,14 @@ function request_subscription(array $user,array $data): array {
         if(!flag($data,'confirmed'))fail(422,'Bevestig dat je activatie wilt aanvragen.');
         $billing=decoded($tenant['billing_json']);
         $billing['legalName']=text($data,'legalName',150,true);$billing['email']=email($data,'billingEmail');$billing['address']=text($data,'address',250,true);$billing['vatNumber']=text($data,'vatNumber',50);
-        $billing['annualCentsPerUser']=18000;$billing['users']=1;
-        $contact=uid();$message='Activatieverzoek na gratis proefperiode. Eén gebruiker: €15/maand, jaarlijks €180 exclusief btw. Facturatie en definitieve activatie via de beheerder.';
+        $contact=uid();$message='Activatieverzoek na gratis proefperiode. De formule en prijs moeten eerst met de klant worden afgesproken. Facturatie en definitieve activatie via de beheerder.';
         query('INSERT INTO ab_contacts(id,name,company,email,phone,sector,message) VALUES (?,?,?,?,\'\',?,?)',[$contact,$user['name'],$tenant['name'],$user['email'],$tenant['sector'],$message]);
         query('UPDATE ab_trials SET upgrade_requested_at=UTC_TIMESTAMP(),contact_id=? WHERE tenant_id=?',[$contact,$tenant['id']]);
         query('UPDATE ab_tenants SET billing_json=?,revision=revision+1 WHERE id=?',[encoded($billing),$tenant['id']]);audit($user['id'],'trial.upgrade_requested',$tenant['id']);
         return ['id'=>$contact,'lead'=>['name'=>$user['name'],'company'=>$tenant['name'],'email'=>$user['email'],'phone'=>'','sector'=>$tenant['sector'],'message'=>$message]];
     });
     if(isset($result['id']))send_lead_notice($result['id'],$result['lead']);
-    return ['message'=>'Je activatieverzoek is ontvangen. Afspraak maken zal contact met je opnemen. Je factuur ontvang je apart.'];
+    return ['message'=>'Je activatieverzoek is ontvangen. Afspraakboeken.be neemt contact met je op. Je factuur ontvang je apart.'];
 }
 function convert_trial(array $user,array $data): array {
     superadmin($user);
@@ -105,9 +104,9 @@ function convert_trial(array $user,array $data): array {
         $tenant=tenant_access($user,$data['tenant']??null,true);$trial=row('SELECT * FROM ab_trials WHERE tenant_id=? FOR UPDATE',[$tenant['id']]);
         if(!$trial)fail(404,'Geen proefperiode gevonden.');
         if($trial['converted_at'])return ['ok'=>true];
-        if(!flag($data,'confirmed'))fail(422,'Bevestig dat de jaarformule met de klant is afgesproken.');
+        if(!flag($data,'confirmed'))fail(422,'Bevestig dat de formule en prijs met de klant zijn afgesproken.');
         query('UPDATE ab_trials SET converted_at=UTC_TIMESTAMP() WHERE tenant_id=?',[$tenant['id']]);
-        query('UPDATE ab_tenants SET active=1,plan_type=\'annual\',monthly_cents=1500,revision=revision+1 WHERE id=?',[$tenant['id']]);
+        query('UPDATE ab_tenants SET active=1,revision=revision+1 WHERE id=?',[$tenant['id']]);
         if($trial['contact_id'])query("UPDATE ab_contacts SET status='contacted' WHERE id=?",[$trial['contact_id']]);
         audit($user['id'],'trial.converted',$tenant['id']);return ['ok'=>true];
     });
@@ -136,7 +135,7 @@ function run_trial_reminders(): array {
             });
             if(!$canSend)continue;
             $title=$days===0?'Je proefperiode eindigt vandaag':'Nog '.$days.' '.($days===1?'dag':'dagen').' om gratis te proberen';
-            $text='Dag '.$trial['name'].",\n\nJe proefperiode voor ".$trial['company'].' eindigt op '.$end->format('d/m/Y').' om '.$end->format('H:i')." (Belgische tijd).\n\nWil je blijven boeken? Vraag je abonnement aan: €15 per gebruiker per maand, jaarlijks gefactureerd (€180 exclusief btw per gebruiker per jaar). Geen automatische betaling.\n\nNa afloop pauzeren nieuwe boekingen. Je gegevens blijven bewaard en je kunt nog inloggen om activatie aan te vragen.";
+            $text='Dag '.$trial['name'].",\n\nJe proefperiode voor ".$trial['company'].' eindigt op '.$end->format('d/m/Y').' om '.$end->format('H:i')." (Belgische tijd).\n\nWil je blijven boeken? Vraag je abonnement aan. We spreken eerst samen de formule en prijs af. Geen automatische betaling.\n\nNa afloop pauzeren nieuwe boekingen. Je gegevens blijven bewaard en je kunt nog inloggen om activatie aan te vragen.";
             $url=rtrim(configuration()['app_url'],'/').'/?view=subscription';
             $status=deliver_mail($trial['email'],$trial['name'],lifecycle_mail($title,$text,'Mijn abonnement activeren',$url));
             query('UPDATE ab_trial_mail SET status=?,sent_at=? WHERE tenant_id=? AND days_before=?',[$status,$status==='sent'?gmdate('Y-m-d H:i:s'):null,$trial['tenant_id'],$days]);
