@@ -43,6 +43,9 @@ query("UPDATE ab_bookings SET status='cancelled' WHERE tenant_id=?",[$id]);
 $day=(new DateTimeImmutable('tomorrow',new DateTimeZone('Europe/Brussels')))->format('Y-m-d');
 $settings=decoded($t['settings_json']);$settings['blocks']=[$day];query('UPDATE ab_tenants SET settings_json=? WHERE id=?',[encoded($settings),$id]);
 google_select($u,['tenant'=>$id,'calendar'=>'test-calendar','confirmed'=>true]);
+// Drain earlier fixture bookings before asserting the exact pending count for the lost-response case.
+for($batch=0;$batch<10&&google_status($u,['tenant'=>$id])['pending']>0;$batch++)google_process($id,30);
+check(google_status($u,['tenant'=>$id])['pending']===0,'Initial fixture queue cleared');
 check(count($remote)===1,'One full-day block created');$eventId=array_key_first($remote);check($remote[$eventId]['start']['date']===$day,'Correct all-day date');
 check(!google_busy($id,$day),'Own synced items do not double-block');
 $listed=[['id'=>'external','start'=>['dateTime'=>$day.'T10:00:00+01:00'],'end'=>['dateTime'=>$day.'T11:00:00+01:00']],['id'=>'transparent','transparency'=>'transparent'],['id'=>'declined','attendees'=>[['self'=>true,'responseStatus'=>'declined']]]];

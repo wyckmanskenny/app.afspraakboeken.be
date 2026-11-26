@@ -21,8 +21,8 @@ try {
         try{
             configuration();$ready=(int)query("SELECT COUNT(*) FROM ab_users WHERE role='superadmin'")->fetchColumn()>0;
             if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();ensure_form_fields_schema();ensure_board_notifications_schema();ensure_marketing_schema();}
-            respond(['ready'=>$ready,'version'=>'0.21.0','trial_available'=>$ready&&mail_configuration()!==null]);
-        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.21.0'],503);}
+            respond(['ready'=>$ready,'version'=>'0.22.0','trial_available'=>$ready&&mail_configuration()!==null]);
+        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.22.0'],503);}
     }
     configuration();
     if($method==='OPTIONS'&&$route==='contact'){origin_guard(true);respond([],204);}
@@ -179,6 +179,8 @@ try {
     if($route==='partners/detail'&&$method==='GET')respond(partner_admin_detail($user,$_GET));
     if($route==='partners/save'&&$method==='POST')respond(partner_admin_save($user,body()));
     if($route==='partners/member'&&$method==='POST')respond(partner_admin_member($user,body()));
+    if($route==='partners/commission-record'&&$method==='POST')respond(partner_admin_commission_record($user,body()));
+    if($route==='partners/commission-status'&&$method==='POST')respond(partner_admin_commission_status($user,body()));
     if($route==='partners/approve'&&$method==='POST'){superadmin($user);$data=body();if(!flag($data,'confirmed'))fail(422,'Bevestig dat de formule met de klant is afgesproken.');respond(transaction(fn()=>partner_activate_account($user,identifier($data['partner']??''),identifier($data['tenant']??''),true)));}
     if($route==='crm/contacts'&&$method==='GET')respond(crm_list($user,$_GET));
     if($route==='crm/contact'&&$method==='GET')respond(crm_detail($user,$_GET));
