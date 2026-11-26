@@ -1,10 +1,10 @@
-# Partneromgeving — 0.22.1
+# Partneromgeving — 0.22.3
 
 ## Ingebruikname
 
 1. Open als superadmin de nieuwe tab **Partners**.
 2. Vul bedrijfsnaam, contactpersoon, e-mail, telefoon en het afgesproken commissiepercentage in. Kies **Partner aanmaken en uitnodigen**: de contactpersoon krijgt meteen een persoonlijke welkomstmail. Accounts activeren staat standaard uit; klanten toevoegen staat aan.
-3. De contactpersoon kiest zelf een wachtwoord via een eenmalige link van 24 uur. Extra gebruikers en nieuwe uitnodigingen beheer je bij de partner. Een e-mailadres kan niet tegelijk klantbeheerder en partnergebruiker zijn. Bij een onzekere of mislukte mail blijft de aangemaakte partner bewaard; de beheerder ziet de status en kan opnieuw uitnodigen. Het contactadres wijzigen verandert bestaande loginadressen niet.
+3. De contactpersoon kiest zelf een wachtwoord via een eenmalige link van 24 uur. Extra gebruikers en nieuwe uitnodigingen beheer je bij de partner. Hetzelfde e-mailadres kan zowel een klantaccount (of superadminaccount) als een partneraccount hebben. Voor het partnerportaal stelt de ontvanger een eigen wachtwoord in; het bestaande app-wachtwoord en de klanttoegang blijven behouden. Bij een onzekere of mislukte mail blijft de aangemaakte partner bewaard; de beheerder ziet de status en kan opnieuw uitnodigen. Het contactadres wijzigen verandert bestaande loginadressen niet.
 4. De partneromgeving werkt direct op `https://app.afspraakboeken.be/partners/`.
 5. Voor het aparte adres: koppel `partners.afspraakboeken.be` aan een eigen webroot met HTTPS en plaats daar **alleen** het bestand `partner-host/index.html` als `index.html`. Geen databaseconfiguratie of wachtwoorden kopiëren. Dit startbestand toont de centraal bijgewerkte partneromgeving in een schermvullend frame; de adresbalk blijft op het partnersubdomein. Het frame communiceert op de app-origin, zodat geen brede CORS- of domeincookie-toegang nodig is.
 6. In productie verwijzen nieuwe uitnodigingen standaard naar `https://partners.afspraakboeken.be/`. Lokale testomgevingen gebruiken hun eigen app-adres met `/partners/`. De bestaande optionele `partner_url`-instelling blijft ondersteund. Oude uitnodigingen op het app-adres blijven geldig tot hun vervaldatum.
@@ -73,6 +73,15 @@ Bestaande partners zonder gebruiker krijgen niet automatisch een mail bij deze u
 
 **Partner verwijderen** vraagt een aparte bevestiging. Het partnerbedrijf krijgt een verwijderdatum, toegang en partnerlinks stoppen, gebruikers worden uitgeschakeld, bestaande sessies worden ingetrokken en ongebruikte uitnodigingen vervallen. Nog niet bevestigde verwijzingen worden losgemaakt; de geïnteresseerde klant kan zijn proefaccount wel afronden. Bestaande klanten, hun gegevens en commissieboekingen blijven bewaard.
 
-Verwijderde partners verdwijnen uit de standaardlijst. Met **Toon ook verwijderde partners** kan de superadmin hun historie terugvinden. Gegevens aanpassen, uitnodigen, klanten activeren en nieuwe ontvangsten boeken zijn daar niet beschikbaar; openstaande historische commissies kunnen nog als uitbetaald of vervallen geregistreerd worden. Verwijderen is geen persoonsgegevens-wisactie en maakt het oude loginadres niet opnieuw beschikbaar.
+Verwijderde partners verdwijnen uit de standaardlijst. Met **Toon ook verwijderde partners** kan de superadmin hun historie terugvinden. Gegevens aanpassen, uitnodigen, klanten activeren en nieuwe ontvangsten boeken zijn daar niet beschikbaar; openstaande historische commissies kunnen nog als uitbetaald of vervallen geregistreerd worden. Verwijderen is geen persoonsgegevens-wisactie en maakt het oude partnerloginadres niet opnieuw beschikbaar voor een andere partner. Een klantaccount met hetzelfde e-mailadres blijft bruikbaar.
 
 De herhaalbare v3-migratie voegt verwijdergegevens en uitnodigings-/activatievelden toe. Een interne poging-ID voorkomt dat een laat SMTP-resultaat de status van een nieuwere uitnodiging overschrijft.
+
+
+## Klant en partner met hetzelfde e-mailadres (0.22.3)
+
+De app en het partnerportaal hebben elk een eigen aanmeldruimte. Eén e-mailadres kan één app-account (klantbeheerder of superadmin) en één partneraccount hebben. De accounts hebben verschillende gebruikers-ID's, wachtwoorden, uitnodigingen en sessies. Een klant als partner uitnodigen geeft geen extra toegang tot klantgegevens en koppelt bestaande klanten niet automatisch aan commissie. Ook een partner kan met hetzelfde e-mailadres een klantaccount of proefaccount aanmaken.
+
+De herhaalbare v4-migratie voegt de gegenereerde kolom `ab_users.login_scope` toe: `partner` voor partnergebruikers, anders `app`. Eerst wordt de unieke index `ab_user_email_scope(email,login_scope)` toegevoegd en gecontroleerd. Daarna vervalt de oude unieke index op alleen e-mail. De bestaande databasecollatie blijft van toepassing, zodat hoofdlettervarianten binnen hetzelfde portaal geen tweede login opleveren. Bestaande gebruikers-ID's, wachtwoorden, uitnodigingen en sessies worden niet gewijzigd. Gelijktijdige migraties worden met de bestaande advisory lock afgeschermd.
+
+Controleer na uitrol `/api/?route=health` voordat je dubbele e-mailadressen aanmaakt. Na het aanmaken van accounts in beide portalen kan de oude globale e-mailconstraint niet zonder gegevensafhandeling worden teruggezet; draai deze migratie daarom niet blind terug. Een herstel moet de twee identiteiten en hun verwijzingen behouden.

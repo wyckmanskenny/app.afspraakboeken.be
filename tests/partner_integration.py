@@ -167,7 +167,7 @@ def run(Client,owner,anonymous,messages,envelopes,config,state):
         c=Client();c.csrf=c.call('partner/login',{'email':email,'password':password})['csrf'];return c
     p=member(pid,'partner-a@example.test');q=member(other,'partner-b-user@example.test')
     p.call('workspace',expected=401);p.call('partners/list',expected=401)
-    p.call('login',{'email':'partner-a@example.test','password':password},expected=403)
+    p.call('login',{'email':'partner-a@example.test','password':password},expected=401)
     before=len(messages);payload={'name':'Partner Customer','admin_name':'Customer','email':'partner-customer@example.test','sector':'Test','confirmed':True,'request_key':secrets.token_hex(16)}
     bad=p.csrf;p.csrf='wrong';p.call('partner/customer-create',payload,expected=403);p.csrf=bad
     created=p.call('partner/customer-create',payload,expected=201);tid=created['tenant_id'];assert 'invite_url' not in created and len(messages)==before+1
@@ -306,10 +306,11 @@ def run(Client,owner,anonymous,messages,envelopes,config,state):
     sql(f"UPDATE ab_partner_members SET invited_at=NULL,invite_mail_status=NULL,invite_mail_error=NULL,invite_token_hash=NULL WHERE user_id='{failed_member}'")
     sql(f"UPDATE ab_audit SET created_at='2025-01-01 10:00:00' WHERE action='partner.invited' AND target_id='{failed_member}'")
     sql(f"INSERT INTO ab_audit(action,target_id,created_at) VALUES ('partner.invited','{failed_member}','2025-01-02 10:00:00')")
-    sql("DELETE FROM ab_audit WHERE action IN ('schema.partners_v2','schema.partners_v3')")
+    sql("DELETE FROM ab_audit WHERE action IN ('schema.partners_v2','schema.partners_v3','schema.partners_v4')")
     assert all(result['ready'] for result in parallel('health'))
     assert sql("SELECT COUNT(*) FROM ab_audit WHERE action='schema.partners_v2'")=='1'
     assert sql("SELECT COUNT(*) FROM ab_audit WHERE action='schema.partners_v3'")=='1'
+    assert sql("SELECT COUNT(*) FROM ab_audit WHERE action='schema.partners_v4'")=='1'
     assert sql('SELECT COUNT(*) FROM ab_partners')==partner_count
     assert sql('SELECT COUNT(*) FROM ab_partner_commissions')==commission_count
     assert p.call('partner/me')['commissions']==before_migration

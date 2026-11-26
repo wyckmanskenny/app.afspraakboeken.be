@@ -21,8 +21,8 @@ try {
         try{
             configuration();$ready=(int)query("SELECT COUNT(*) FROM ab_users WHERE role='superadmin'")->fetchColumn()>0;
             if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();ensure_form_fields_schema();ensure_board_notifications_schema();ensure_marketing_schema();}
-            respond(['ready'=>$ready,'version'=>'0.22.2','trial_available'=>$ready&&mail_configuration()!==null]);
-        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.22.2'],503);}
+            respond(['ready'=>$ready,'version'=>'0.22.3','trial_available'=>$ready&&mail_configuration()!==null]);
+        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.22.3'],503);}
     }
     configuration();
     if($method==='OPTIONS'&&$route==='contact'){origin_guard(true);respond([],204);}
@@ -54,7 +54,7 @@ try {
         $data=body();$email=email($data);$pw=$data['password']??'';
         if(!is_string($pw)||strlen($pw)>72)fail(401,'E-mailadres of wachtwoord klopt niet.');
         limit_rate('login-ip',client_ip(),40,900);limit_rate('login-email',$email,12,900);
-        $user=row('SELECT u.*,t.active AS tenant_active FROM ab_users u LEFT JOIN ab_tenants t ON t.id=u.tenant_id WHERE u.email=?',[$email]);
+        $user=row("SELECT u.*,t.active AS tenant_active FROM ab_users u LEFT JOIN ab_tenants t ON t.id=u.tenant_id WHERE u.email=? AND u.role IN ('admin','superadmin')",[$email]);
         // The fallback hash makes unknown accounts follow a password verification path too.
         $fallback='$2y$12$7RrV1Mg01rl3JTTz6OZMzuCdmQ4P7kPk9cdLRLfkV2eI9EJ0t/RXG';
         if(!password_verify($pw,$user['password_hash']??$fallback)||!$user||!$user['active'])fail(401,'E-mailadres of wachtwoord klopt niet.');
@@ -70,7 +70,7 @@ try {
         if(!preg_match('/^[a-f0-9]{64}$/D',$token))fail(400,'Deze activatielink is ongeldig of verlopen.');
         limit_rate('invite-ip',client_ip(),30,900);
         $result=transaction(function()use($route,$data,$token){
-            $invite=row('SELECT i.*,u.email,u.name,u.tenant_id,u.active,t.name AS company,t.active AS tenant_active FROM ab_invites i JOIN ab_users u ON u.id=i.user_id JOIN ab_tenants t ON t.id=u.tenant_id WHERE i.token_hash=? FOR UPDATE',[hash('sha256',$token)]);
+            $invite=row("SELECT i.*,u.email,u.name,u.tenant_id,u.active,t.name AS company,t.active AS tenant_active FROM ab_invites i JOIN ab_users u ON u.id=i.user_id JOIN ab_tenants t ON t.id=u.tenant_id WHERE i.token_hash=? AND u.role='admin' FOR UPDATE",[hash('sha256',$token)]);
             if(!$invite||$invite['used_at']||$invite['expires_at']<=gmdate('Y-m-d H:i:s')||!$invite['active'])fail(400,'Deze activatielink is ongeldig of verlopen. Vraag een nieuwe link aan Afspraakboeken.be.');
             if($route==='invite/check')return ['name'=>$invite['name'],'email'=>$invite['email'],'company'=>$invite['company']];
             query('UPDATE ab_users SET password_hash=? WHERE id=?',[hash_password(password($data)),$invite['user_id']]);
@@ -217,7 +217,7 @@ try {
         $monthly=integer($data,'monthly_cents',0,10000000,0);$lifetime=integer($data,'lifetime_cents',0,10000000,0);
         $settings=clean_settings($data['settings']??[],default_settings(),true);
         $result=transaction(function()use($user,$name,$email,$adminName,$sector,$plan,$monthly,$lifetime,$settings){
-            if(row('SELECT id FROM ab_users WHERE email=?',[$email]))fail(409,'Dit e-mailadres heeft al een account.');
+            if(row("SELECT id FROM ab_users WHERE email=? AND role IN ('admin','superadmin')",[$email]))fail(409,'Dit e-mailadres heeft al een account in de app.');
             $id=uid();$userId=uid();
             query('INSERT INTO ab_tenants(id,name,sector,contact_email,plan_type,monthly_cents,lifetime_cents,billing_json,settings_json) VALUES (?,?,?,?,?,?,?,?,?)',[$id,$name,$sector,$email,$plan,$monthly,$lifetime,'{}',encoded($settings)]);
             query('INSERT INTO ab_users(id,tenant_id,email,name,role) VALUES (?,?,?,?,\'admin\')',[$userId,$id,$email,$adminName]);
