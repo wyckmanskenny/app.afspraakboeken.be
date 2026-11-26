@@ -32,7 +32,7 @@ test('A logged-out visitor gets one login form without a role selector or agency
  await until(()=>ui.document.getElementById('login-form'));
  assert.equal(ui.document.querySelector('select'),null);assert.equal(ui.document.querySelector('[data-page="tenants"]'),null);
  assert.equal(ui.document.querySelector('input[name=password]').type,'password');
- ui.document.getElementById('show-password').click();assert.equal(ui.document.querySelector('input[name=password]').type,'text');await ui.close();
+ await until(()=>ui.document.querySelector('.password-toggle'));ui.document.querySelector('.password-toggle').click();assert.equal(ui.document.querySelector('input[name=password]').type,'text');await ui.close();
 });
 test('Company admins receive only their workspace navigation and escaped account names',async()=>{
  const ui=await setup(route=>route==='me'?result({csrf:'csrf-test',user:{id:'c'.repeat(32),role:'admin',name:'<img src=x>',email:'test@example.test',tenant_id:company.id}}):result({tenant:company,services:[service],bookings:[],booking_limit:2000}));

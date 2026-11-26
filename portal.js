@@ -1,3 +1,4 @@
+import {initPasswordVisibility} from './password-visibility.js?v=0.22.2';
 import {mountReminders,mountBookingReminders} from './reminders-ui.js?v=0.21.0';
 import {originBadge} from './origin-ui.js?v=0.20.0';
 import {mountMarketing} from './marketing-ui.js?v=0.20.0';
@@ -9,9 +10,10 @@ import {mountCRM} from './crm-ui.js?v=0.20.0';
 import {manualLeadForm,columnsForm,columnRow,intake,intakePanel,flowLabel,crmBoard,leadDetail as leadDetailContent,scheduleForm} from './lead-ui.js?v=0.20.0';
 import {trialBanner,expiredTrialPage,subscriptionPage,trialsPage,conversionForm} from './trial-ui.js?v=0.22.0';
 import {esc,money,dateLabel,icon,logo,serviceVisual,button,pill,fieldError,request,setCsrf,toast,modal,closeModal,submit,safeUrl} from './ui.js?v=0.16.1';
-import {renderLogin} from './auth.js?v=0.16.1';
+import {renderLogin} from './auth.js?v=0.22.2';
 import {SECTORS} from './sectors.js?v=0.16.1';
 import {TODAY,addDays,BRAND_FONTS,brandVariables} from './core.js?v=0.16.1';
+initPasswordVisibility();
 
 
 

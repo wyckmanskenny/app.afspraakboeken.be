@@ -1,4 +1,6 @@
+import {initPasswordVisibility} from './password-visibility.js?v=0.22.2';
 import {esc,logo,fieldError,request,submit} from './ui.js?v=0.16.1';
+initPasswordVisibility();
 const trial=location.hash.startsWith('#trial=');const token=location.hash.slice(trial?7:1);history.replaceState(null,'',location.pathname);
 const app=document.getElementById('app');
 async function start(){
