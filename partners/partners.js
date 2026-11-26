@@ -1,5 +1,7 @@
+import {initPasswordVisibility} from '../password-visibility.js?v=0.22.2';
 import {esc,logo,request,setCsrf,submit,fieldError,money,toast} from '../ui.js?v=0.16.1';
 import {SECTORS} from '../sectors.js?v=0.16.1';
+initPasswordVisibility();
 
 const root=document.getElementById('app');
 let state=null,view='home',selectedMonth='',generatedTrialLink='',sessionVersion=0;

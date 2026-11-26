@@ -1,5 +1,5 @@
 {
-  "version": "0.22.1",
+  "version": "0.22.2",
   "site": "app.afspraakboeken.be",
-  "release": "partner-invitation-status-activation-and-removal"
+  "release": "password-visibility-controls-across-account-flows"
 }

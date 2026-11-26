@@ -1,4 +1,6 @@
+import {initPasswordVisibility} from '../password-visibility.js?v=0.22.2';
 import {logo,submit} from '../ui.js?v=0.16.1';
+initPasswordVisibility();
 document.getElementById('brand').innerHTML=logo();
 document.getElementById('setup-form').onsubmit=event=>{
  event.preventDefault();submit(event.currentTarget,async data=>{
