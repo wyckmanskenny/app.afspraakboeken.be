@@ -21,8 +21,8 @@ try {
         try{
             configuration();$ready=(int)query("SELECT COUNT(*) FROM ab_users WHERE role='superadmin'")->fetchColumn()>0;
             if($ready){ensure_lifecycle_schema();ensure_leads_schema();ensure_crm_schema();ensure_partners_schema();ensure_calendar_schema();ensure_media_schema();ensure_company_notifications_schema();ensure_form_fields_schema();ensure_board_notifications_schema();ensure_marketing_schema();}
-            respond(['ready'=>$ready,'version'=>'0.22.0','trial_available'=>$ready&&mail_configuration()!==null]);
-        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.22.0'],503);}
+            respond(['ready'=>$ready,'version'=>'0.22.1','trial_available'=>$ready&&mail_configuration()!==null]);
+        }catch(Throwable $e){respond(['ready'=>false,'version'=>'0.22.1'],503);}
     }
     configuration();
     if($method==='OPTIONS'&&$route==='contact'){origin_guard(true);respond([],204);}
@@ -175,9 +175,10 @@ try {
     if($route==='outlook/sync'&&$method==='POST'){$data=body();$t=tenant_access($user,$data['tenant']??$user['tenant_id']);if($user['role']!=='superadmin'&&trial_expired($t['id']))fail(402,'Activeer eerst je account.');limit_rate('calendar-manual',$t['id'],10,600);outlook_pull($t['id']);outlook_process($t['id'],10);respond(['ok'=>true]);}
     if($route==='booking/slots'&&$method==='GET')respond(calendar_booking_slots($user,$_GET));
     if($route==='booking/reschedule'&&$method==='POST')respond(calendar_reschedule($user,body()));
-    if($route==='partners/list'&&$method==='GET')respond(partner_admin_list($user));
+    if($route==='partners/list'&&$method==='GET')respond(partner_admin_list($user,$_GET));
     if($route==='partners/detail'&&$method==='GET')respond(partner_admin_detail($user,$_GET));
     if($route==='partners/save'&&$method==='POST')respond(partner_admin_save($user,body()));
+    if($route==='partners/delete'&&$method==='POST')respond(partner_admin_delete($user,body()));
     if($route==='partners/member'&&$method==='POST')respond(partner_admin_member($user,body()));
     if($route==='partners/commission-record'&&$method==='POST')respond(partner_admin_commission_record($user,body()));
     if($route==='partners/commission-status'&&$method==='POST')respond(partner_admin_commission_status($user,body()));

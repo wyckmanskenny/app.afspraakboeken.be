@@ -1,4 +1,4 @@
-# Partneromgeving — 0.22.0
+# Partneromgeving — 0.22.1
 
 ## Ingebruikname
 
@@ -7,7 +7,7 @@
 3. De contactpersoon kiest zelf een wachtwoord via een eenmalige link van 24 uur. Extra gebruikers en nieuwe uitnodigingen beheer je bij de partner. Een e-mailadres kan niet tegelijk klantbeheerder en partnergebruiker zijn. Bij een onzekere of mislukte mail blijft de aangemaakte partner bewaard; de beheerder ziet de status en kan opnieuw uitnodigen. Het contactadres wijzigen verandert bestaande loginadressen niet.
 4. De partneromgeving werkt direct op `https://app.afspraakboeken.be/partners/`.
 5. Voor het aparte adres: koppel `partners.afspraakboeken.be` aan een eigen webroot met HTTPS en plaats daar **alleen** het bestand `partner-host/index.html` als `index.html`. Geen databaseconfiguratie of wachtwoorden kopiëren. Dit startbestand toont de centraal bijgewerkte partneromgeving in een schermvullend frame; de adresbalk blijft op het partnersubdomein. Het frame communiceert op de app-origin, zodat geen brede CORS- of domeincookie-toegang nodig is.
-6. Zodra dat adres werkt, zet in de bestaande privéconfiguratie op het hoogste niveau, naast `app_url`: `'partner_url' => 'https://partners.afspraakboeken.be',`. Nieuwe partneruitnodigingen verwijzen dan naar het aparte domein. Oude uitnodigingen op het app-adres blijven geldig tot hun vervaldatum. Zonder deze optionele instelling blijven uitnodigingen het werkende app/partners-adres gebruiken.
+6. In productie verwijzen nieuwe uitnodigingen standaard naar `https://partners.afspraakboeken.be/`. Lokale testomgevingen gebruiken hun eigen app-adres met `/partners/`. De bestaande optionele `partner_url`-instelling blijft ondersteund. Oude uitnodigingen op het app-adres blijven geldig tot hun vervaldatum.
 
 Het startbestand hoeft bij normale app-updates niet opnieuw te worden gekopieerd. De partnerpagina staat framing alleen toe vanaf zichzelf en `https://partners.afspraakboeken.be`. Het partnerdomein heeft geen toegang tot databasewachtwoorden.
 
@@ -58,3 +58,21 @@ De aanvullende v2-migratie voegt contactgegevens, commissiepercentage, eenmalige
 ## Controle
 
 Lokale integratietests gebruiken een wegwerpdatabase en een SMTP-testserver. Ze controleren gescheiden rollen/sessies, CSRF, uitnodigingen, twee partners, activeren met/zonder recht, partner- en medewerkerpauze, bestaande klanttoegang, verificatietoewijzing en bescherming tegen overnemen van bestaande accounts. UI-tests controleren partnerlogin, klant toevoegen, superadminbeheer en de registratievermelding. Er worden geen productiepartners of klanten voor tests aangemaakt.
+
+## Uitnodigingen en activatie (0.22.1)
+
+Partneruitnodigingen gebruiken **hallo@afspraakboeken.be** als afzender via de bestaande SMTP-koppeling. De mail bevat de eenmalige wachtwoordknop en een aparte link naar het partnerportaal. De mailprovider moet dit afzenderadres toestaan; gebruik hiervoor de mailbox of een door de provider geautoriseerde afzender. De app maakt geen mailbox aan en wijzigt geen SMTP-wachtwoorden.
+
+In de partnerlijst staat **Geactiveerd**, **Wacht op activatie** of **Nog niet uitgenodigd**. Dit staat los van toegangsrechten (toegestaan/gepauzeerd). Een partner is geactiveerd zodra minstens één partnergebruiker via de persoonlijke uitnodiging een wachtwoord heeft ingesteld. Voor bestaande accounts wordt een ingesteld wachtwoord herkend; een historisch tijdstip wordt uitsluitend uit een bestaande activatie-audit afgeleid.
+
+Bij elke partnergebruiker staan de activatie, laatste uitnodiging en verzendstatus. **Verstuurd** betekent dat de SMTP-server het bericht heeft aangenomen, niet dat inboxbezorging bewezen is. Bij een fout verschijnt uitsluitend een veilige categorie, bijvoorbeeld ontbrekende mailinstellingen, SMTP-aanmelding of geweigerde afzender. Wachtwoorden, servertranscripten en tokens worden nooit in foutmeldingen opgeslagen. Een nieuwe uitnodiging vervangt de vorige ongebruikte link; een bestaand wachtwoord of eerdere activatie blijft geldig totdat de ontvanger zelf een nieuw wachtwoord instelt.
+
+Bestaande partners zonder gebruiker krijgen niet automatisch een mail bij deze update. Open **Partnergebruikers** en nodig de contactpersoon uit. Nieuwe partners krijgen hun uitnodiging meteen bij aanmaken. Het versturen heeft geen automatische retries: herhaal bewust via **Uitnodiging opnieuw sturen** als dat nodig is.
+
+## Partner verwijderen
+
+**Partner verwijderen** vraagt een aparte bevestiging. Het partnerbedrijf krijgt een verwijderdatum, toegang en partnerlinks stoppen, gebruikers worden uitgeschakeld, bestaande sessies worden ingetrokken en ongebruikte uitnodigingen vervallen. Nog niet bevestigde verwijzingen worden losgemaakt; de geïnteresseerde klant kan zijn proefaccount wel afronden. Bestaande klanten, hun gegevens en commissieboekingen blijven bewaard.
+
+Verwijderde partners verdwijnen uit de standaardlijst. Met **Toon ook verwijderde partners** kan de superadmin hun historie terugvinden. Gegevens aanpassen, uitnodigen, klanten activeren en nieuwe ontvangsten boeken zijn daar niet beschikbaar; openstaande historische commissies kunnen nog als uitbetaald of vervallen geregistreerd worden. Verwijderen is geen persoonsgegevens-wisactie en maakt het oude loginadres niet opnieuw beschikbaar.
+
+De herhaalbare v3-migratie voegt verwijdergegevens en uitnodigings-/activatievelden toe. Een interne poging-ID voorkomt dat een laat SMTP-resultaat de status van een nieuwere uitnodiging overschrijft.

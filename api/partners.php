@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 function ensure_partners_schema(): void {
-    if(row("SELECT id FROM ab_audit WHERE action='schema.partners_v2' LIMIT 1"))return;
+    if(row("SELECT id FROM ab_audit WHERE action='schema.partners_v3' LIMIT 1"))return;
     $lock='ab-partners-'.substr(hash('sha256',configuration()['db']['name']),0,32);
     if((int)query('SELECT GET_LOCK(?,10)',[$lock])->fetchColumn()!==1)fail(503,'De partneromgeving wordt klaargezet. Probeer opnieuw.');
     try{
@@ -36,6 +36,25 @@ function ensure_partners_schema(): void {
             }
             audit(null,'schema.partners_v2','2');
         }
+        if(!row("SELECT id FROM ab_audit WHERE action='schema.partners_v3' LIMIT 1")){
+            $columns=[
+                'ab_partners'=>['deleted_at'=>'DATETIME NULL','deleted_by'=>'CHAR(32) NULL'],
+                'ab_partner_members'=>[
+                    'activated_at'=>'DATETIME NULL','invited_at'=>'DATETIME NULL',
+                    'invite_mail_status'=>'VARCHAR(24) NULL','invite_mail_error'=>'VARCHAR(32) NULL',
+                    'invite_token_hash'=>'CHAR(64) NULL'
+                ]
+            ];
+            foreach($columns as $table=>$definitions)foreach($definitions as $column=>$definition){
+                if(!row('SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?',[$table,$column]))connection()->exec("ALTER TABLE $table ADD COLUMN $column $definition");
+            }
+            // used_at is also set when an invitation is replaced, so it is not proof of activation.
+            query("UPDATE ab_partner_members m JOIN ab_users u ON u.id=m.user_id SET m.activated_at=(SELECT MIN(a.created_at) FROM ab_audit a WHERE a.action='partner.password_set' AND a.target_id=m.user_id) WHERE m.activated_at IS NULL AND u.password_hash IS NOT NULL");
+            query("UPDATE ab_partner_members m SET m.invited_at=(SELECT MAX(a.created_at) FROM ab_audit a WHERE a.action='partner.invited' AND a.target_id=m.user_id) WHERE m.invited_at IS NULL");
+            // Legacy company status describes initial creation only; resends had no stored result.
+            // Leave historical member delivery unknown rather than attach an old success to a later invite.
+            audit(null,'schema.partners_v3','3');
+        }
     }finally{query('SELECT RELEASE_LOCK(?)',[$lock]);}
 }
 
@@ -50,69 +69,92 @@ function partner_percent_bps(mixed $value): int {
 
 function partner_percent_label(int $bps): string {return intdiv($bps,100).'.'.str_pad((string)($bps%100),2,'0',STR_PAD_LEFT);}
 
-function partner_welcome_mail(string $email,string $name,string $company,string $url): string {
+function partner_welcome_mail(string $email,string $name,string $company,string $url): array {
     $content=lifecycle_mail('Welkom partner bij Afspraakboeken',"Dag $name,\n\nWelkom als partner van Afspraakboeken.be! Je partneromgeving voor $company staat klaar.\n\nKies eerst je eigen wachtwoord. Daarna kun je je persoonlijke link delen, klanten 14 dagen gratis laten proberen en je aangebrachte klanten en commissies opvolgen.\n\nDeze persoonlijke link is 24 uur geldig en werkt één keer. Deel hem niet met anderen.",'Mijn wachtwoord instellen',$url);
+    $portal=partner_portal_url();$safePortal=htmlspecialchars($portal,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
+    $content['from_email']='hallo@afspraakboeken.be';
+    $content['text'].="\n\nAl een wachtwoord ingesteld? Log voortaan in op je partnerportaal:\n$portal";
     $content['html']=str_replace('background:#264653;color:white','background:#e9c46a;color:#264653',$content['html']);
-    return deliver_mail($email,$name,$content);
+    $content['html']=str_replace('</div></body>', '<p style="font-size:14px;line-height:1.7">Al een wachtwoord ingesteld? <a href="'.$safePortal.'" style="color:#264653">Naar je partnerportaal</a><br><span style="word-break:break-all">'.$safePortal.'</span></p></div></body>', $content['html']);
+    return deliver_mail_result($email,$name,$content);
 }
 function partner_code(mixed $code): ?array {
     if($code===null||$code==='')return null;
     if(!is_string($code)||!preg_match('/^[a-f0-9]{24}$/D',$code))fail(422,'Deze partnerlink is ongeldig.');
-    $p=row('SELECT * FROM ab_partners WHERE referral_code=? AND active=1',[$code]);if(!$p)fail(422,'Deze partnerlink is niet meer actief. Neem contact op met Afspraakboeken.be.');return $p;
+    $p=row('SELECT * FROM ab_partners WHERE referral_code=? AND active=1 AND deleted_at IS NULL',[$code]);if(!$p)fail(422,'Deze partnerlink is niet meer actief. Neem contact op met Afspraakboeken.be.');return $p;
 }
 function partner_signup_referral(string $email,string $token,mixed $code): void {
-    $p=partner_code($code);query('DELETE FROM ab_partner_referrals WHERE created_at<DATE_SUB(UTC_TIMESTAMP(),INTERVAL 30 DAY)');query('DELETE FROM ab_partner_referrals WHERE email=?',[$email]);
-    if($p)query('INSERT INTO ab_partner_referrals(email,token_hash,partner_id) VALUES (?,?,?)',[$email,$token,$p['id']]);
+    $p=partner_code($code);
+    transaction(function()use($email,$token,$p){
+        if($p&&!row('SELECT id FROM ab_partners WHERE id=? AND active=1 AND deleted_at IS NULL FOR UPDATE',[$p['id']]))fail(422,'Deze partnerlink is niet meer actief.');
+        query('DELETE FROM ab_partner_referrals WHERE created_at<DATE_SUB(UTC_TIMESTAMP(),INTERVAL 30 DAY)');query('DELETE FROM ab_partner_referrals WHERE email=?',[$email]);
+        if($p)query('INSERT INTO ab_partner_referrals(email,token_hash,partner_id) VALUES (?,?,?)',[$email,$token,$p['id']]);
+    });
 }
 function partner_trial_attribution(array $signup,string $tenant): void {
     $r=row('SELECT partner_id FROM ab_partner_referrals WHERE email=? AND token_hash=?',[$signup['email'],$signup['token_hash']]);
-    if($r)query("INSERT INTO ab_partner_accounts(tenant_id,partner_id,source) VALUES (?,?,'link')",[$tenant,$r['partner_id']]);
+    if($r&&row('SELECT id FROM ab_partners WHERE id=? AND deleted_at IS NULL FOR UPDATE',[$r['partner_id']]))query("INSERT INTO ab_partner_accounts(tenant_id,partner_id,source) VALUES (?,?,'link')",[$tenant,$r['partner_id']]);
     query('DELETE FROM ab_partner_referrals WHERE email=?',[$signup['email']]);
 }
 function partner_cookie_name(): string {return configuration()['secure_cookies']?'__Host-ab_partner':'ab_dev_partner';}
 function partner_cookie(string $token,int $expiry): void {setcookie(partner_cookie_name(),$token,['expires'=>$expiry,'path'=>'/','secure'=>configuration()['secure_cookies'],'httponly'=>true,'samesite'=>'Lax']);}
 function partner_identity(): array {
     $token=$_COOKIE[partner_cookie_name()]??'';$u=null;
-    if(preg_match('/^[a-f0-9]{64}$/D',$token))$u=row("SELECT u.id,u.name,u.email,u.role,s.csrf,s.token_hash,m.partner_id FROM ab_sessions s JOIN ab_users u ON u.id=s.user_id JOIN ab_partner_members m ON m.user_id=u.id JOIN ab_partners p ON p.id=m.partner_id WHERE s.token_hash=? AND s.expires_at>UTC_TIMESTAMP() AND s.last_seen>DATE_SUB(UTC_TIMESTAMP(),INTERVAL 30 MINUTE) AND u.active=1 AND u.role='partner' AND p.active=1",[hash('sha256',$token)]);
+    if(preg_match('/^[a-f0-9]{64}$/D',$token))$u=row("SELECT u.id,u.name,u.email,u.role,s.csrf,s.token_hash,m.partner_id FROM ab_sessions s JOIN ab_users u ON u.id=s.user_id JOIN ab_partner_members m ON m.user_id=u.id JOIN ab_partners p ON p.id=m.partner_id WHERE s.token_hash=? AND s.expires_at>UTC_TIMESTAMP() AND s.last_seen>DATE_SUB(UTC_TIMESTAMP(),INTERVAL 30 MINUTE) AND u.active=1 AND u.role='partner' AND p.active=1 AND p.deleted_at IS NULL",[hash('sha256',$token)]);
     if(!$u){partner_cookie('',time()-3600);fail(401,'Meld je aan in de partneromgeving.');}
     query('UPDATE ab_sessions SET last_seen=UTC_TIMESTAMP() WHERE token_hash=?',[$u['token_hash']]);return $u;
 }
 function partner_login(array $data): array {
     $email=email($data);$pw=$data['password']??'';if(!is_string($pw)||strlen($pw)>72)fail(401,'E-mailadres of wachtwoord klopt niet.');
     limit_rate('partner-login-ip',client_ip(),40,900);limit_rate('partner-login-email',$email,12,900);
-    $u=row("SELECT u.*,m.partner_id,p.active AS partner_active FROM ab_users u JOIN ab_partner_members m ON m.user_id=u.id JOIN ab_partners p ON p.id=m.partner_id WHERE u.email=? AND u.role='partner'",[$email]);
+    $u=row("SELECT u.*,m.partner_id,p.active AS partner_active,p.deleted_at FROM ab_users u JOIN ab_partner_members m ON m.user_id=u.id JOIN ab_partners p ON p.id=m.partner_id WHERE u.email=? AND u.role='partner'",[$email]);
     $fallback='$2y$12$7RrV1Mg01rl3JTTz6OZMzuCdmQ4P7kPk9cdLRLfkV2eI9EJ0t/RXG';
-    if(!password_verify($pw,$u['password_hash']??$fallback)||!$u||!$u['active']||!$u['partner_active'])fail(401,'E-mailadres of wachtwoord klopt niet.');
+    if(!password_verify($pw,$u['password_hash']??$fallback)||!$u||!$u['active']||!$u['partner_active']||$u['deleted_at'])fail(401,'E-mailadres of wachtwoord klopt niet.');
     $token=bin2hex(random_bytes(32));$csrf=bin2hex(random_bytes(32));
     query('INSERT INTO ab_sessions(token_hash,user_id,csrf,created_at,last_seen,expires_at) VALUES (?,?,?,UTC_TIMESTAMP(),UTC_TIMESTAMP(),DATE_ADD(UTC_TIMESTAMP(),INTERVAL 8 HOUR))',[hash('sha256',$token),$u['id'],$csrf]);partner_cookie($token,time()+28800);audit($u['id'],'partner.login',$u['partner_id']);return ['csrf'=>$csrf,'name'=>$u['name']];
 }
 function partner_portal_url(): string {
-    return (configuration()['partner_url']??'')==='https://partners.afspraakboeken.be'?'https://partners.afspraakboeken.be/':rtrim(configuration()['app_url'],'/').'/partners/';
+    $app=rtrim(configuration()['app_url'],'/');
+    return (configuration()['partner_url']??'')==='https://partners.afspraakboeken.be'||$app==='https://app.afspraakboeken.be'?'https://partners.afspraakboeken.be/':$app.'/partners/';
 }
 function partner_invite_link(string $user): string {
     $link=invite_for($user);$token=substr($link,strpos($link,'#')+1);
+    query("UPDATE ab_partner_members SET invited_at=UTC_TIMESTAMP(),invite_mail_status='pending',invite_mail_error=NULL,invite_token_hash=? WHERE user_id=?",[hash('sha256',$token),$user]);
     return partner_portal_url().'#invite='.$token;
+}
+/** Store only the newest attempt; a late SMTP result must not overwrite a resend or deletion. */
+function partner_deliver_invitation(array $actor,array $result): array {
+    $mail=partner_welcome_mail($result['email'],$result['contact_name'],$result['company'],$result['invite_url']);
+    $hash=hash('sha256',substr($result['invite_url'],strpos($result['invite_url'],'#invite=')+8));
+    transaction(function()use($actor,$result,$hash,$mail){
+        if(!row('SELECT id FROM ab_partners WHERE id=? AND deleted_at IS NULL FOR UPDATE',[$result['id']]))return;
+        $updated=query('UPDATE ab_partner_members SET invite_mail_status=?,invite_mail_error=? WHERE user_id=? AND invite_token_hash=?',[$mail['status'],$mail['error'],$result['member_id'],$hash])->rowCount();
+        if($updated){query('UPDATE ab_partners SET invite_mail_status=? WHERE id=?',[$mail['status'],$result['id']]);audit($actor['id'],'partner.welcome_'.$mail['status'],$result['member_id']);}
+    });
+    $result['mail']=$mail['status'];$result['mail_error']=$mail['error'];
+    unset($result['email'],$result['contact_name'],$result['company'],$result['member_id']);
+    return $result;
 }
 function partner_invite_accept(array $data,bool $accept): array {
     $hash=trial_token($data);
     return transaction(function()use($data,$hash,$accept){
-        $i=row("SELECT i.*,u.name,u.email,u.active,p.active AS partner_active,p.name AS company FROM ab_invites i JOIN ab_users u ON u.id=i.user_id JOIN ab_partner_members m ON m.user_id=u.id JOIN ab_partners p ON p.id=m.partner_id WHERE i.token_hash=? AND u.role='partner' FOR UPDATE",[$hash]);
-        if(!$i||!$i['active']||!$i['partner_active']||$i['used_at']||$i['expires_at']<=gmdate('Y-m-d H:i:s'))fail(400,'Deze uitnodiging is ongeldig of verlopen. Vraag een nieuwe link aan Afspraakboeken.be.');
+        $i=row("SELECT i.*,u.name,u.email,u.active,p.active AS partner_active,p.deleted_at,p.name AS company FROM ab_invites i JOIN ab_users u ON u.id=i.user_id JOIN ab_partner_members m ON m.user_id=u.id JOIN ab_partners p ON p.id=m.partner_id WHERE i.token_hash=? AND u.role='partner' FOR UPDATE",[$hash]);
+        if(!$i||!$i['active']||!$i['partner_active']||$i['deleted_at']||$i['used_at']||$i['expires_at']<=gmdate('Y-m-d H:i:s'))fail(400,'Deze uitnodiging is ongeldig of verlopen. Vraag een nieuwe link aan Afspraakboeken.be.');
         if(!$accept)return ['name'=>$i['name'],'company'=>$i['company'],'email'=>$i['email']];
-        query('UPDATE ab_users SET password_hash=? WHERE id=?',[hash_password(password($data)),$i['user_id']]);query('UPDATE ab_invites SET used_at=UTC_TIMESTAMP() WHERE user_id=? AND used_at IS NULL',[$i['user_id']]);query('DELETE FROM ab_sessions WHERE user_id=?',[$i['user_id']]);audit($i['user_id'],'partner.password_set',$i['user_id']);return ['ok'=>true];
+        query('UPDATE ab_users SET password_hash=? WHERE id=?',[hash_password(password($data)),$i['user_id']]);query('UPDATE ab_partner_members SET activated_at=COALESCE(activated_at,UTC_TIMESTAMP()) WHERE user_id=?',[$i['user_id']]);query('UPDATE ab_invites SET used_at=UTC_TIMESTAMP() WHERE user_id=? AND used_at IS NULL',[$i['user_id']]);query('DELETE FROM ab_sessions WHERE user_id=?',[$i['user_id']]);audit($i['user_id'],'partner.password_set',$i['user_id']);return ['ok'=>true];
     });
 }
 function partner_view(array $p): array {
     foreach(['active','can_create','can_activate'] as $k)$p[$k]=(bool)$p[$k];$p['revision']=(int)$p['revision'];
     $p['commission_bps']=(int)$p['commission_bps'];$p['rate_bps']=$p['commission_bps'];$p['commission_percent']=partner_percent_label($p['commission_bps']);
     $p['referral_url']=rtrim(configuration()['app_url'],'/').'/registreren/?mode=trial&partner='.$p['referral_code'];$p['trial_url']=$p['referral_url'];
-    unset($p['create_request_key'],$p['create_request_hash'],$p['created_by'],$p['invite_mail_status']);return $p;
+    unset($p['create_request_key'],$p['create_request_hash'],$p['created_by'],$p['invite_mail_status'],$p['deleted_by']);return $p;
 }
 
 function partner_trial_link(array $u,array $data): array {
     $campaign=text($data,'campaign',60);
     if($campaign!==''&&!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,59}$/D',$campaign))fail(422,'Gebruik voor het linklabel alleen letters, cijfers, streepjes en underscores.');
-    $p=row('SELECT * FROM ab_partners WHERE id=? AND active=1',[$u['partner_id']]);if(!$p)fail(403,'Deze partneromgeving is niet actief.');
+    $p=row('SELECT * FROM ab_partners WHERE id=? AND active=1 AND deleted_at IS NULL',[$u['partner_id']]);if(!$p)fail(403,'Deze partneromgeving is niet actief.');
     $url=partner_view($p)['trial_url'];
     if($campaign!=='')$url.='&'.http_build_query(['utm_source'=>'partner','utm_medium'=>'referral','utm_campaign'=>$campaign],'','&',PHP_QUERY_RFC3986);
     return ['url'=>$url,'days'=>14];
@@ -163,7 +205,7 @@ function partner_dashboard(array $u): array {
         'commission'=>query("SELECT status,SUM(amount_cents) AS amount_cents FROM ab_partner_commissions WHERE partner_id=? AND currency='EUR' GROUP BY status",[$p['id']])->fetchAll()];
 }
 function partner_locked(array $u): array {
-    $p=row('SELECT * FROM ab_partners WHERE id=? AND active=1 FOR UPDATE',[$u['partner_id']]);if(!$p)fail(403,'Deze partneromgeving is niet actief.');
+    $p=row('SELECT * FROM ab_partners WHERE id=? AND active=1 AND deleted_at IS NULL FOR UPDATE',[$u['partner_id']]);if(!$p)fail(403,'Deze partneromgeving is niet actief.');
     if(!row('SELECT id FROM ab_users WHERE id=? AND active=1',[$u['id']]))fail(403,'Je toegang is ingetrokken.');return $p;
 }
 function partner_create_customer(array $u,array $data): array {
@@ -181,7 +223,7 @@ function partner_create_customer(array $u,array $data): array {
     return $result;
 }
 function partner_activate_account(array $actor,string $partner,string $tenant,bool $approve): array {
-    $p=row('SELECT * FROM ab_partners WHERE id=? AND active=1 FOR UPDATE',[$partner]);if(!$p)fail(404,'Partner niet gevonden.');
+    $p=row('SELECT * FROM ab_partners WHERE id=? AND active=1 AND deleted_at IS NULL FOR UPDATE',[$partner]);if(!$p)fail(404,'Partner niet gevonden.');
     $a=row('SELECT * FROM ab_partner_accounts WHERE tenant_id=? AND partner_id=?',[$tenant,$partner]);if(!$a)fail(404,'Klant niet gevonden.');
     if($actor['role']==='partner'&&$approve&&!$p['can_activate'])fail(403,'Activatie moet door Afspraakboeken.be worden goedgekeurd.');
     $t=row('SELECT * FROM ab_tenants WHERE id=? FOR UPDATE',[$tenant]);
@@ -193,11 +235,49 @@ function partner_activate_account(array $actor,string $partner,string $tenant,bo
 function partner_customer_activation(array $u,array $data): array {
     return transaction(function()use($u,$data){partner_locked($u);if(!flag($data,'confirmed'))fail(422,'Bevestig de activatieaanvraag.');return partner_activate_account($u,$u['partner_id'],identifier($data['tenant']??''),flag($data,'activate'));});
 }
-function partner_admin_list(array $u): array {superadmin($u);$list=query('SELECT p.*,(SELECT COUNT(*) FROM ab_partner_accounts a WHERE a.partner_id=p.id) AS customers,(SELECT COUNT(*) FROM ab_partner_accounts a WHERE a.partner_id=p.id AND a.activation_requested_at IS NOT NULL) AS pending FROM ab_partners p ORDER BY p.name')->fetchAll();return ['partners'=>array_map('partner_view',$list)];}
+function partner_admin_select(): string {
+    return "SELECT p.*,
+        (SELECT COUNT(*) FROM ab_partner_accounts a WHERE a.partner_id=p.id) AS customers,
+        (SELECT COUNT(*) FROM ab_partner_accounts a WHERE a.partner_id=p.id AND a.activation_requested_at IS NOT NULL) AS pending,
+        (SELECT COUNT(*) FROM ab_partner_members m WHERE m.partner_id=p.id) AS member_count,
+        (SELECT COUNT(*) FROM ab_partner_members m JOIN ab_users u ON u.id=m.user_id WHERE m.partner_id=p.id AND u.password_hash IS NOT NULL) AS activated_members
+        FROM ab_partners p";
+}
+function partner_admin_view(array $p): array {
+    $p=partner_view($p);
+    foreach(['customers','pending','member_count','activated_members'] as $field)$p[$field]=(int)$p[$field];
+    $p['activation_status']=$p['activated_members']>0?'activated':($p['member_count']>0?'pending':'not_invited');
+    return $p;
+}
+function partner_admin_list(array $u,array $data=[]): array {
+    superadmin($u);$includeDeleted=($data['include_deleted']??'')==='1';
+    $list=query(partner_admin_select().($includeDeleted?'':' WHERE p.deleted_at IS NULL').' ORDER BY p.name')->fetchAll();
+    return ['partners'=>array_map('partner_admin_view',$list),'mail'=>['configured'=>mail_configuration()!==null,'from'=>'hallo@afspraakboeken.be']];
+}
 function partner_admin_detail(array $u,array $data): array {
-    superadmin($u);$id=identifier($data['id']??'');$p=row('SELECT * FROM ab_partners WHERE id=?',[$id]);if(!$p)fail(404,'Partner niet gevonden.');
+    superadmin($u);$id=identifier($data['id']??'');$p=row(partner_admin_select().' WHERE p.id=?',[$id]);if(!$p)fail(404,'Partner niet gevonden.');
     $accounts=partner_accounts($id);$commissions=partner_commission_report($id);
-    return ['partner'=>partner_view($p),'accounts'=>$accounts,'summary'=>partner_summary($accounts,$commissions),'commissions'=>$commissions,'members'=>query('SELECT u.id,u.name,u.email,u.active FROM ab_partner_members m JOIN ab_users u ON u.id=m.user_id WHERE m.partner_id=? ORDER BY u.name',[$id])->fetchAll()];
+    $members=query('SELECT u.id,u.name,u.email,u.active,(u.password_hash IS NOT NULL) AS activated,m.activated_at,m.invited_at,m.invite_mail_status,m.invite_mail_error,(SELECT MAX(i.expires_at) FROM ab_invites i WHERE i.user_id=u.id AND i.used_at IS NULL) AS invite_expires_at FROM ab_partner_members m JOIN ab_users u ON u.id=m.user_id WHERE m.partner_id=? ORDER BY u.name',[$id])->fetchAll();
+    foreach($members as &$member){$member['active']=(bool)$member['active'];$member['activated']=(bool)$member['activated'];}unset($member);
+    return ['partner'=>partner_admin_view($p),'accounts'=>$accounts,'summary'=>partner_summary($accounts,$commissions),'commissions'=>$commissions,'members'=>$members,'mail'=>['configured'=>mail_configuration()!==null,'from'=>'hallo@afspraakboeken.be']];
+}
+function partner_admin_delete(array $u,array $data): array {
+    superadmin($u);if(!flag($data,'confirmed'))fail(422,'Bevestig dat je deze partner wilt verwijderen.');
+    $id=identifier($data['id']??'');$revision=integer($data,'revision',1,2147483647);
+    return transaction(function()use($u,$id,$revision){
+        $p=row('SELECT * FROM ab_partners WHERE id=? FOR UPDATE',[$id]);if(!$p)fail(404,'Partner niet gevonden.');
+        if($p['deleted_at'])return ['ok'=>true,'id'=>$id,'deleted_at'=>$p['deleted_at'],'replayed'=>true];
+        if($revision!==(int)$p['revision'])fail(409,'Deze partner is elders gewijzigd. Vernieuw de gegevens voordat je verwijdert.');
+        query('UPDATE ab_partners SET active=0,deleted_at=UTC_TIMESTAMP(),deleted_by=?,revision=revision+1 WHERE id=?',[$u['id'],$id]);
+        query('UPDATE ab_users u JOIN ab_partner_members m ON m.user_id=u.id SET u.active=0 WHERE m.partner_id=?',[$id]);
+        query('DELETE s FROM ab_sessions s JOIN ab_partner_members m ON m.user_id=s.user_id WHERE m.partner_id=?',[$id]);
+        query('UPDATE ab_invites i JOIN ab_partner_members m ON m.user_id=i.user_id SET i.used_at=COALESCE(i.used_at,UTC_TIMESTAMP()) WHERE m.partner_id=?',[$id]);
+        query("UPDATE ab_partner_members SET invite_token_hash=NULL,invite_mail_status=IF(invite_mail_status='pending','cancelled',invite_mail_status) WHERE partner_id=?",[$id]);
+        query('DELETE FROM ab_partner_referrals WHERE partner_id=?',[$id]);
+        // Customers, contact ownership and commission entries are retained for normal operations and settlement.
+        audit($u['id'],'partner.deleted',$id);
+        return ['ok'=>true,'id'=>$id,'deleted_at'=>row('SELECT deleted_at FROM ab_partners WHERE id=?',[$id])['deleted_at'],'replayed'=>false];
+    });
 }
 function partner_admin_save(array $u,array $data): array {
     superadmin($u);
@@ -209,7 +289,7 @@ function partner_admin_save(array $u,array $data): array {
         $result=transaction(function()use($u,$data,$isNew,$invite,$key){
             $name=text($data,'name',120,true);$mail=email($data);$active=flag($data,'active',true);$create=flag($data,'can_create',true);$activate=flag($data,'can_activate');
             if(!$isNew){
-                $id=identifier($data['id']);$p=row('SELECT * FROM ab_partners WHERE id=? FOR UPDATE',[$id]);if(!$p)fail(404,'Partner niet gevonden.');
+                $id=identifier($data['id']);$p=row('SELECT * FROM ab_partners WHERE id=? AND deleted_at IS NULL FOR UPDATE',[$id]);if(!$p)fail(404,'Partner niet gevonden.');
                 if(integer($data,'revision',1,2147483647)!==(int)$p['revision'])fail(409,'Deze partner is elders gewijzigd. Vernieuw de gegevens.');
                 $contact=array_key_exists('contact_name',$data)?text($data,'contact_name',120):$p['contact_name'];$phone=array_key_exists('phone',$data)?text($data,'phone',40):$p['phone'];
                 $rate=array_key_exists('commission_percent',$data)?partner_percent_bps($data['commission_percent']):(int)$p['commission_bps'];
@@ -222,8 +302,9 @@ function partner_admin_save(array $u,array $data): array {
             if($invite&&!$active)fail(422,'Activeer de partner om meteen een welkomstmail te sturen.');
             $hash=hash('sha256',encoded([$name,$mail,$contact,$phone,$rate,$active,$create,$activate,$invite]));
             if($key){
-                $old=row('SELECT id,created_by,create_request_hash,invite_mail_status FROM ab_partners WHERE create_request_key=? FOR UPDATE',[$key]);
+                $old=row('SELECT id,created_by,create_request_hash,invite_mail_status,deleted_at FROM ab_partners WHERE create_request_key=? FOR UPDATE',[$key]);
                 if($old){
+                    if($old['deleted_at'])fail(409,'Deze partner is intussen verwijderd. Maak zo nodig een nieuwe partner aan.');
                     if($old['created_by']!==$u['id']||!hash_equals($old['create_request_hash'],$hash))fail(409,'Dit verzoek is al met andere gegevens verwerkt.');
                     return ['id'=>$old['id'],'replayed'=>true,'mail'=>$old['invite_mail_status']??'not_requested'];
                 }
@@ -233,26 +314,30 @@ function partner_admin_save(array $u,array $data): array {
             $result=['id'=>$id,'replayed'=>false];
             if($invite){
                 $member=uid();query("INSERT INTO ab_users(id,email,name,role) VALUES (?,?,?,'partner')",[$member,$mail,$contact]);query('INSERT INTO ab_partner_members(user_id,partner_id) VALUES (?,?)',[$member,$id]);
-                $result+=['invite_url'=>partner_invite_link($member),'email'=>$mail,'contact_name'=>$contact,'company'=>$name];audit($u['id'],'partner.invited',$member);
+                $result+=['member_id'=>$member,'invite_url'=>partner_invite_link($member),'email'=>$mail,'contact_name'=>$contact,'company'=>$name];audit($u['id'],'partner.invited',$member);
             }
             audit($u['id'],'partner.saved',$id);return $result;
         });
     }finally{if($isNew)query('SELECT RELEASE_LOCK(?)',[$lock]);}
-    if(isset($result['invite_url'])){
-        $result['mail']=partner_welcome_mail($result['email'],$result['contact_name'],$result['company'],$result['invite_url']);
-        query('UPDATE ab_partners SET invite_mail_status=? WHERE id=?',[$result['mail'],$result['id']]);
-        audit($u['id'],'partner.welcome_'.$result['mail'],$result['id']);unset($result['email'],$result['contact_name'],$result['company']);
-    }
+    if(isset($result['invite_url']))return partner_deliver_invitation($u,$result);
     return $result;
 }
 function partner_admin_member(array $u,array $data): array {
-    superadmin($u);$result=transaction(function()use($u,$data){$pid=identifier($data['partner']??'');$p=row('SELECT * FROM ab_partners WHERE id=? FOR UPDATE',[$pid]);if(!$p)fail(404,'Partner niet gevonden.');
-        if(!empty($data['id'])){$id=identifier($data['id']);$member=row('SELECT u.* FROM ab_users u JOIN ab_partner_members m ON m.user_id=u.id WHERE m.partner_id=? AND u.id=?',[$pid,$id]);if(!$member)fail(404,'Gebruiker niet gevonden.');
+    superadmin($u);$result=transaction(function()use($u,$data){
+        $pid=identifier($data['partner']??'');$p=row('SELECT * FROM ab_partners WHERE id=? AND deleted_at IS NULL FOR UPDATE',[$pid]);if(!$p)fail(404,'Partner niet gevonden.');
+        if(!empty($data['id'])){
+            $id=identifier($data['id']);$member=row('SELECT u.* FROM ab_users u JOIN ab_partner_members m ON m.user_id=u.id WHERE m.partner_id=? AND u.id=? FOR UPDATE',[$pid,$id]);if(!$member)fail(404,'Gebruiker niet gevonden.');
             if(array_key_exists('active',$data)){query('UPDATE ab_users SET active=? WHERE id=?',[(int)flag($data,'active'),$id]);query('DELETE FROM ab_sessions WHERE user_id=?',[$id]);audit($u['id'],'partner.member_access',$id);return ['ok'=>true];}
             if(!$member['active']||!$p['active'])fail(422,'Activeer eerst de partner en gebruiker.');
-        }else{$mail=email($data);$name=text($data,'name',120,true);if(row('SELECT id FROM ab_users WHERE email=?',[$mail]))fail(409,'Dit e-mailadres heeft al een account. Gebruik een ander aanmeldadres.');$id=uid();query("INSERT INTO ab_users(id,email,name,role) VALUES (?,?,?,'partner')",[$id,$mail,$name]);query('INSERT INTO ab_partner_members VALUES (?,?)',[$id,$pid]);$member=['email'=>$mail,'name'=>$name];}
-        $url=partner_invite_link($id);audit($u['id'],'partner.invited',$id);return ['invite_url'=>$url,'email'=>$member['email'],'name'=>$member['name'],'company'=>$p['name']];});
-    if(isset($result['invite_url']))$result['mail']=partner_welcome_mail($result['email'],$result['name'],$result['company'],$result['invite_url']);
+        }else{
+            if(!$p['active'])fail(422,'Activeer eerst de partner.');
+            $mail=email($data);$name=text($data,'name',120,true);if(row('SELECT id FROM ab_users WHERE email=?',[$mail]))fail(409,'Dit e-mailadres heeft al een account. Gebruik een ander aanmeldadres.');
+            $id=uid();query("INSERT INTO ab_users(id,email,name,role) VALUES (?,?,?,'partner')",[$id,$mail,$name]);query('INSERT INTO ab_partner_members(user_id,partner_id) VALUES (?,?)',[$id,$pid]);$member=['email'=>$mail,'name'=>$name];
+        }
+        $url=partner_invite_link($id);audit($u['id'],'partner.invited',$id);
+        return ['id'=>$pid,'member_id'=>$id,'invite_url'=>$url,'email'=>$member['email'],'contact_name'=>$member['name'],'company'=>$p['name']];
+    });
+    if(isset($result['invite_url']))return partner_deliver_invitation($u,$result);
     return $result;
 }
 
@@ -278,7 +363,7 @@ function partner_admin_commission_record(array $u,array $data): array {
     if((int)query('SELECT GET_LOCK(?,10)',[$lock])->fetchColumn()!==1)fail(409,'Er wordt al een betaling verwerkt. Probeer opnieuw.');
     try{
         return transaction(function()use($u,$data,$pid,$tenant,$reference,$month,$received,$base,$key,$hash){
-            $p=row('SELECT * FROM ab_partners WHERE id=? FOR UPDATE',[$pid]);if(!$p)fail(404,'Partner niet gevonden.');
+            $p=row('SELECT * FROM ab_partners WHERE id=? AND deleted_at IS NULL FOR UPDATE',[$pid]);if(!$p)fail(404,'Partner niet gevonden.');
             $old=row('SELECT * FROM ab_partner_commissions WHERE partner_id=? AND request_key=? FOR UPDATE',[$pid,$key]);
             if($old){if(!$old['request_hash']||!hash_equals($old['request_hash'],$hash))fail(409,'Dit verzoek is al met andere betalingsgegevens verwerkt.');return partner_commission_result($old,true);}
             $old=row('SELECT * FROM ab_partner_commissions WHERE invoice_reference=? LIMIT 1',[$reference]);
